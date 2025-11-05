@@ -1,0 +1,139 @@
+# Configuration for Self-Verification RAG Pipeline
+
+# Dataset Configuration
+dataset:
+  name: "natural_questions"  # or "squad", "trivia_qa"
+  train_split: 0.8
+  val_split: 0.1
+  test_split: 0.1
+  max_context_length: 512
+  max_query_length: 64
+
+# Retrieval Configuration
+retrieval:
+  dense:
+    model_name: "sentence-transformers/all-mpnet-base-v2"
+    embedding_dim: 768
+    top_k: 20
+    index_type: "faiss"
+    similarity_metric: "cosine"
+  
+  sparse:
+    method: "bm25"
+    k1: 1.5
+    b: 0.75
+  
+  fusion:
+    dense_weight: 0.6
+    sparse_weight: 0.4
+    top_k: 20
+  
+  reranker:
+    model_name: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    top_k: 5
+
+# Generation Configuration
+generation:
+  model_name: "google/flan-t5-large"
+  max_length: 512
+  max_new_tokens: 256
+  temperature: 0.7
+  top_p: 0.95
+  top_k: 50
+  do_sample: true
+  
+  # QLoRA Configuration
+  qlora:
+    r: 16
+    lora_alpha: 32
+    lora_dropout: 0.1
+    target_modules: ["q", "v", "k", "o"]
+    bits: 4
+    bit_type: "nf4"
+    training_enabled: true
+
+# Verification Configuration
+verification:
+  entailment_model: "microsoft/deberta-v3-large"
+  mnli_checkpoint: "microsoft/deberta-v3-large"
+  fever_checkpoint: "microsoft/deberta-v3-large"
+  threshold: 0.75  # τ (tau) - optimal threshold to be tuned
+  claim_extraction:
+    method: "spacy_svo"
+    model: "en_core_web_sm"
+  
+  # Threshold sweep for Experiment 3
+  threshold_sweep: [0.5, 0.6, 0.7, 0.75, 0.8, 0.85, 0.9]
+
+# Revision Configuration
+revision:
+  max_iterations: 3
+  strategies:
+    - "re_retrieval"
+    - "constrained_generation"
+    - "claim_by_claim"
+  
+  re_retrieval:
+    expansion_factor: 1.5
+    query_rewrite: true
+  
+  constrained_generation:
+    max_tries: 3
+    verify_claims: true
+
+# Evaluation Configuration
+evaluation:
+  metrics:
+    - "recall@5"
+    - "recall@10"
+    - "recall@20"
+    - "mrr"
+    - "ndcg@10"
+    - "coverage"
+    - "factual_precision"
+    - "factual_recall"
+    - "hallucination_rate"
+    - "verified_f1"
+    - "exact_match"
+    - "f1_score"
+  
+  targets:
+    recall_at_20: 0.95
+    coverage: 0.90
+    factual_precision: 0.90
+    verified_f1: 0.52
+    hallucination_rate: 0.10
+  
+  statistical_testing:
+    method: "t_test"
+    alpha: 0.05
+    bootstrap_iterations: 1000
+
+# Training Configuration
+training:
+  batch_size: 8
+  gradient_accumulation_steps: 4
+  learning_rate: 2e-4
+  num_epochs: 3
+  warmup_steps: 100
+  max_grad_norm: 1.0
+  save_strategy: "epoch"
+  eval_strategy: "steps"
+  eval_steps: 500
+  logging_steps: 100
+
+# Experiment Configuration
+experiments:
+  random_seed: 42
+  num_runs: 3  # For statistical significance
+  device: "cuda"  # Use "cuda" for GPU, "cpu" for CPU
+  mixed_precision: true
+
+# Paths
+paths:
+  data_dir: "./data"
+  model_cache: "./models"
+  results_dir: "./results"
+  checkpoint_dir: "./checkpoints"
+  log_dir: "./logs"
+
