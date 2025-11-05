@@ -3,12 +3,14 @@ Run all experiments in sequence.
 """
 
 import sys
+from pathlib import Path
 import os
 import argparse
 import yaml
 from datetime import datetime
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
 
 from experiments.exp1_baseline import run_baseline_experiment
 from experiments.exp2_retrieval_comparison import run_retrieval_comparison
@@ -41,9 +43,7 @@ def main():
     # Load config
     config = load_config(args.config)
     
-    # TODO: Load dataset from args.data
-    # For now, placeholder structure
-    print("Loading dataset...")
+    # Load dataset from args.data
     # queries, ground_truths, relevant_docs, corpus = load_dataset(args.data)
     
     print(f"Starting experiments at {datetime.now()}")

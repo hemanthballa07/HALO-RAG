@@ -57,9 +57,6 @@ class QLoRATrainer:
         
         # Add LoRA adapters
         self.model = get_peft_model(self.model, lora_config)
-        
-        # Print trainable parameters
-        self.model.print_trainable_parameters()
     
     def prepare_dataset(
         self,

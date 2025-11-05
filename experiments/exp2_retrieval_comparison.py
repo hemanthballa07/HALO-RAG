@@ -4,8 +4,10 @@ Dense vs Sparse vs Hybrid Retrieval
 """
 
 import sys
+from pathlib import Path
 import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
 
 import yaml
 import torch
@@ -156,6 +158,12 @@ def run_retrieval_comparison(
 
 if __name__ == "__main__":
     config = load_config()
-    print("Experiment 2: Retrieval Comparison")
-    print("Note: Replace with actual dataset loading")
+    
+    # Load your dataset here
+    # queries, relevant_docs, corpus = load_dataset(...)
+    
+    # Run experiment
+    # aggregated, comparisons = run_retrieval_comparison(
+    #     queries, relevant_docs, corpus, config
+    # )
 

@@ -4,8 +4,10 @@ Optimal τ (tau) for entailment verification
 """
 
 import sys
+from pathlib import Path
 import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
 
 import yaml
 import torch
@@ -194,6 +196,12 @@ def plot_threshold_curves(threshold_results: Dict[float, Dict]):
 
 if __name__ == "__main__":
     config = load_config()
-    print("Experiment 3: Threshold Tuning")
-    print("Note: Replace with actual dataset loading")
+    
+    # Load your dataset here
+    # queries, ground_truths, relevant_docs, corpus = load_dataset(...)
+    
+    # Run experiment
+    # threshold_results, optimal_threshold = run_threshold_tuning(
+    #     queries, ground_truths, relevant_docs, corpus, config
+    # )
 

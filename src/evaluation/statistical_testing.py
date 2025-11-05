@@ -6,7 +6,6 @@ Implements t-tests and bootstrap confidence intervals.
 import numpy as np
 from scipy import stats
 from typing import List, Tuple, Optional, Dict
-import warnings
 
 
 class StatisticalTester:

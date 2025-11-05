@@ -4,8 +4,10 @@ Performance on adversarial queries
 """
 
 import sys
+from pathlib import Path
 import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
 
 import yaml
 import torch
@@ -133,6 +135,12 @@ def run_stress_test(
 
 if __name__ == "__main__":
     config = load_config()
-    print("Experiment 8: Stress Test")
-    print("Note: Replace with actual dataset loading")
+    
+    # Load your adversarial dataset here
+    # adversarial_queries, ground_truths, relevant_docs, corpus = load_adversarial_dataset(...)
+    
+    # Run experiment
+    # aggregated, error_analysis = run_stress_test(
+    #     adversarial_queries, ground_truths, relevant_docs, corpus, config
+    # )
 

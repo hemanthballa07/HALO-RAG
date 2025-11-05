@@ -5,7 +5,11 @@ Standard RAG vs Self-Verification RAG
 
 import sys
 import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from pathlib import Path
+
+# Add project root to path
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
 
 import yaml
 import torch
@@ -97,16 +101,8 @@ if __name__ == "__main__":
     # Load config
     config = load_config()
     
-    # TODO: Load dataset
-    # For now, using placeholder data
-    print("Experiment 1: Baseline Comparison")
-    print("Note: Replace with actual dataset loading")
-    
-    # Placeholder data structure
-    queries = []
-    ground_truths = []
-    relevant_docs = []
-    corpus = []
+    # Load your dataset here
+    # Example: queries, ground_truths, relevant_docs, corpus = load_dataset(...)
     
     # Run experiment
     # aggregated, results = run_baseline_experiment(

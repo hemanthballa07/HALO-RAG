@@ -4,8 +4,10 @@ Self-improvement through fine-tuning loops
 """
 
 import sys
+from pathlib import Path
 import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
 
 import yaml
 import torch
@@ -199,6 +201,16 @@ def plot_training_curves(training_history: List[Dict]):
 
 if __name__ == "__main__":
     config = load_config()
-    print("Experiment 6: Iterative Training")
-    print("Note: Replace with actual dataset loading")
+    
+    # Load your dataset here
+    # train_queries, train_contexts, train_answers = load_training_data(...)
+    # eval_queries, eval_ground_truths, eval_relevant_docs = load_eval_data(...)
+    # corpus = load_corpus(...)
+    
+    # Run experiment
+    # training_history = run_iterative_training_experiment(
+    #     train_queries, train_contexts, train_answers,
+    #     eval_queries, eval_ground_truths, eval_relevant_docs,
+    #     corpus, config
+    # )
 
