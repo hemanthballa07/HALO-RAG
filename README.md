@@ -113,8 +113,8 @@ If you use this code, please cite:
 ```
 @article{halo_rag_2025,
   title={Self-Verification Chains for Hallucination-Free Retrieval-Augmented Generation},
-  author={[Your Team]},
-  journal={NeurIPS 2025},
+  author={[Hemanth Balla, Anisa Shaik, Reshma Koshy, Pranay Reddy Pullaiahgari]},
+  journal={CIS 6930: Special Topics in Large Language Models, University of Florida},
   year={2025}
 }
 ```
