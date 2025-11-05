@@ -1,0 +1,115 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.sublime-project
+*.sublime-workspace
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints/
+
+# Data (keep README, ignore actual data files)
+data/*.csv
+data/*.json
+data/*.pkl
+data/*.h5
+data/*.hdf5
+data/*.zip
+data/*.tar.gz
+!data/README.md
+
+# Models (keep README, ignore actual models)
+models/*.pt
+models/*.pth
+models/*.bin
+models/*.safetensors
+models/*.ckpt
+models/*.h5
+!models/.gitkeep
+
+# Checkpoints
+checkpoints/
+*.pt
+*.pth
+*.bin
+*.safetensors
+*.ckpt
+
+# Results (keep README, ignore actual results)
+results/*.json
+results/*.csv
+results/*.pkl
+results/*.png
+results/*.jpg
+results/*.pdf
+results/figures/
+!results/README.md
+!results/.gitkeep
+
+# Weights & Biases
+wandb/
+.wandb/
+
+# OS
+.DS_Store
+Thumbs.db
+.DS_Store?
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*.log
+*.out
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+
+# Documentation build
+docs/_build/
+site/
+
+# Local configuration overrides
+config_local.yaml
+*.local.yaml
+
