@@ -1,0 +1,246 @@
+"""
+End-to-end Self-Verification RAG Pipeline
+Combines retrieval, reranking, generation, and verification.
+"""
+
+from typing import List, Dict, Optional, Tuple, Any
+import torch
+import logging
+
+from src.retrieval import HybridRetriever, CrossEncoderReranker
+from src.generator import FLANT5Generator
+from src.verification import EntailmentVerifier, ClaimExtractor
+from src.revision import AdaptiveRevisionStrategy
+from src.evaluation import EvaluationMetrics
+
+logger = logging.getLogger(__name__)
+
+
+class SelfVerificationRAGPipeline:
+    """
+    End-to-end Self-Verification RAG Pipeline.
+    
+    Components:
+    1. Hybrid retrieval (FAISS + BM25)
+    2. Cross-encoder reranking
+    3. FLAN-T5 generation (with QLoRA)
+    4. Entailment-based verification
+    5. Adaptive revision (if needed)
+    """
+    
+    def __init__(
+        self,
+        corpus: List[str],
+        retrieval_model: str = "sentence-transformers/all-mpnet-base-v2",
+        reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2",
+        generator_model: str = "google/flan-t5-large",
+        verifier_model: str = "microsoft/deberta-v3-large",
+        entailment_threshold: float = 0.75,
+        dense_weight: float = 0.6,
+        sparse_weight: float = 0.4,
+        device: str = "cuda",
+        use_qlora: bool = True,
+        enable_revision: bool = True,
+        max_revision_iterations: int = 3
+    ):
+        """
+        Initialize Self-Verification RAG pipeline.
+        
+        Args:
+            corpus: List of documents to retrieve from
+            retrieval_model: Dense retrieval model name
+            reranker_model: Cross-encoder reranker model name
+            generator_model: Generator model name
+            verifier_model: Entailment verifier model name
+            entailment_threshold: Entailment threshold (τ)
+            dense_weight: Weight for dense retrieval
+            sparse_weight: Weight for sparse retrieval
+            device: Device to run models on
+            use_qlora: Whether to use QLoRA for generator
+            enable_revision: Whether to enable adaptive revision
+            max_revision_iterations: Maximum revision iterations
+        """
+        self.device = device
+        self.corpus = corpus
+        self.enable_revision = enable_revision
+        self.max_revision_iterations = max_revision_iterations
+        
+        # Initialize retrieval
+        logger.info("Initializing hybrid retriever...")
+        self.retriever = HybridRetriever(
+            dense_model_name=retrieval_model,
+            dense_weight=dense_weight,
+            sparse_weight=sparse_weight,
+            device=device
+        )
+        self.retriever.build_index(corpus)
+        
+        # Initialize reranker
+        logger.info("Initializing cross-encoder reranker...")
+        self.reranker = CrossEncoderReranker(
+            model_name=reranker_model,
+            device=device
+        )
+        
+        # Initialize generator
+        logger.info("Initializing FLAN-T5 generator...")
+        self.generator = FLANT5Generator(
+            model_name=generator_model,
+            device=device,
+            use_qlora=use_qlora
+        )
+        
+        # Initialize verifier
+        logger.info("Initializing entailment verifier...")
+        self.verifier = EntailmentVerifier(
+            model_name=verifier_model,
+            device=device,
+            threshold=entailment_threshold
+        )
+        
+        # Initialize claim extractor
+        logger.info("Initializing claim extractor...")
+        self.claim_extractor = ClaimExtractor()
+        
+        # Initialize revision strategy
+        if enable_revision:
+            logger.info("Initializing adaptive revision strategy...")
+            self.revision_strategy = AdaptiveRevisionStrategy(
+                max_iterations=max_revision_iterations
+            )
+        else:
+            self.revision_strategy = None
+        
+        # Initialize evaluation metrics
+        self.evaluator = EvaluationMetrics()
+        
+        logger.info("Pipeline initialized successfully!")
+    
+    def generate(
+        self,
+        query: str,
+        top_k_retrieve: int = 20,
+        top_k_rerank: int = 5,
+        max_revision_iterations: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """
+        Generate answer with self-verification.
+        
+        Args:
+            query: Query string
+            top_k_retrieve: Number of documents to retrieve
+            top_k_rerank: Number of documents to rerank
+            max_revision_iterations: Maximum revision iterations (overrides init)
+        
+        Returns:
+            Dictionary with generation results and verification
+        """
+        if max_revision_iterations is None:
+            max_revision_iterations = self.max_revision_iterations
+        
+        # Step 1: Hybrid retrieval
+        retrieved_docs = self.retriever.retrieve(query, top_k=top_k_retrieve)
+        retrieved_texts = [doc[1] for doc in retrieved_docs]
+        retrieved_ids = [doc[0] for doc in retrieved_docs]
+        
+        # Step 2: Cross-encoder reranking
+        reranked_docs = self.reranker.rerank(
+            query,
+            retrieved_texts,
+            top_k=top_k_rerank
+        )
+        reranked_texts = [doc[1] for doc in reranked_docs]
+        context = " ".join(reranked_texts)
+        
+        # Step 3: Generation
+        generated_text = self.generator.generate(query, context)
+        
+        # Step 4: Claim extraction
+        claims = self.claim_extractor.extract_claims(generated_text)
+        
+        # Step 5: Verification
+        verification_results = self.verifier.verify_generation(
+            generated_text,
+            reranked_texts,
+            claims
+        )
+        
+        # Step 6: Adaptive revision (if enabled and verification failed)
+        revision_iterations = 0
+        if self.enable_revision and self.revision_strategy:
+            if not verification_results.get("verified", False):
+                for iteration in range(max_revision_iterations):
+                    revised_text, new_verification = self.revision_strategy.revise(
+                        query=query,
+                        initial_generation=generated_text,
+                        verification_results=verification_results,
+                        retrieval_fn=lambda q, k: self.retriever.retrieve(q, top_k=k),
+                        generation_fn=lambda q, ctx: self.generator.generate(q, ctx),
+                        verification_fn=lambda gen, ctxs, clms: self.verifier.verify_generation(
+                            gen, ctxs, clms
+                        ),
+                        iteration=iteration
+                    )
+                    
+                    generated_text = revised_text
+                    verification_results = new_verification
+                    revision_iterations += 1
+                    
+                    if verification_results.get("verified", False):
+                        break
+        
+        return {
+            "query": query,
+            "generated_text": generated_text,
+            "retrieved_docs": retrieved_ids,
+            "reranked_docs": [doc[0] for doc in reranked_docs],
+            "context": context,
+            "claims": claims,
+            "verification_results": verification_results,
+            "revision_iterations": revision_iterations,
+            "verified": verification_results.get("verified", False)
+        }
+    
+    def evaluate(
+        self,
+        query: str,
+        ground_truth: str,
+        relevant_doc_ids: List[int],
+        ground_truth_claims: Optional[List[str]] = None,
+        **generate_kwargs
+    ) -> Dict[str, Any]:
+        """
+        Generate and evaluate on a query.
+        
+        Args:
+            query: Query string
+            ground_truth: Ground truth answer
+            relevant_doc_ids: List of relevant document IDs
+            ground_truth_claims: Optional list of ground truth claims
+            **generate_kwargs: Additional arguments for generate()
+        
+        Returns:
+            Dictionary with generation results and all metrics
+        """
+        # Generate
+        results = self.generate(query, **generate_kwargs)
+        
+        # Compute metrics
+        metrics = self.evaluator.compute_all_metrics(
+            retrieved_docs=results["retrieved_docs"],
+            relevant_docs=relevant_doc_ids,
+            verification_results=results["verification_results"]["verification_results"],
+            generated=results["generated_text"],
+            ground_truth=ground_truth,
+            corpus_size=len(self.corpus),
+            ground_truth_claims=ground_truth_claims
+        )
+        
+        results["metrics"] = metrics
+        
+        return results
+    
+    def set_entailment_threshold(self, threshold: float):
+        """Update entailment threshold."""
+        self.verifier.set_threshold(threshold)
+
