@@ -259,15 +259,96 @@ Monitor data diversity: lexical variety (type-token ratio), syntactic complexity
 ```
 **Status:** Not implemented
 
-### 4. Missing Dataset Integration
+### 4. Dataset Integration
 
-#### Dataset Loading ❌
+#### Dataset Loading ✅ **IMPLEMENTED**
 **Proposal Requirement:**
 ```
 Datasets: SQuAD v2.0, Natural Questions, HotpotQA, FEVER
 Corpus: Wikipedia 2018 dump (21M passages)
 ```
-**Status:** No actual dataset loading code (only placeholders in experiments)
+**Status:** ✅ Implemented unified dataset loaders
+
+**Supported Datasets:**
+- ✅ **SQuAD v2.0**: ~150K examples (includes unanswerable questions)
+- ✅ **Natural Questions (NQ)**: ~300K examples (complex HTML structure)
+- ✅ **HotpotQA**: ~113K examples (multi-hop questions)
+
+**Unified Schema:**
+All datasets are normalized to a unified schema:
+```python
+{
+    "id": str,              # Unique example ID
+    "question": str,        # Question text (normalized)
+    "context": str,         # Context/document text (normalized)
+    "answers": List[str]    # List of answers (empty list if unanswerable)
+}
+```
+
+**Features:**
+- ✅ Text normalization (whitespace, quotes, special characters)
+- ✅ Validation (skips examples with empty question/context)
+- ✅ Support for unanswerable questions (empty answers list)
+- ✅ Configurable sample limits for testing
+- ✅ Cache directory support for offline runs
+- ✅ Dataset selection via config (`datasets.active`)
+
+**Implementation:**
+- `src/data/loaders.py`: Unified loaders for all datasets
+- `src/data/__init__.py`: Public API for dataset loading
+- `experiments/check_dataset_loading.py`: Verification script
+- `config/config.yaml`: Dataset configuration
+
+**Usage:**
+```python
+from src.data import load_dataset
+
+# Load dataset
+examples = load_dataset(
+    dataset_name="squad_v2",
+    split="train",
+    limit=100,  # Optional: limit for testing
+    cache_dir="~/.cache/huggingface/datasets/"
+)
+
+# Prepare for experiments
+from src.data import prepare_for_experiments
+queries, ground_truths, relevant_docs, corpus = prepare_for_experiments(examples)
+```
+
+**Validation:**
+- Schema validation: All examples match unified schema
+- Non-empty ratio: ≥95% for answerable questions (SQuAD v2 has unanswerable Qs)
+- Text normalization: Whitespace, quotes, special characters handled
+- Error handling: Graceful handling of missing fields
+
+**Sanity Check Results:**
+- ✅ SQuAD v2: Loads correctly, handles unanswerable questions
+- ✅ Natural Questions: Extracts text from tokenized documents
+- ✅ HotpotQA: Combines multi-paragraph contexts
+- ✅ All datasets return normalized examples matching unified schema
+
+**Notes:**
+- Natural Questions has complex HTML structure - loader extracts text from tokens
+- HotpotQA combines multiple context paragraphs into single context
+- SQuAD v2 properly handles `is_impossible` flag for unanswerable questions
+- All loaders skip invalid examples (empty question/context) automatically
+
+**Testing:**
+Run `python experiments/check_dataset_loading.py` to verify dataset loading:
+- Loads dataset from config
+- Validates schema
+- Prints sample examples
+- Reports statistics (total, answerable, unanswerable)
+- Saves preview to `data/sample_preview.json`
+
+#### FEVER Dataset ❌
+**Proposal Requirement:**
+```
+FEVER: 185K fact verification claims (train verification module)
+```
+**Status:** Not implemented (FEVER is for training verification module, not for QA experiments)
+**Note:** FEVER dataset is used for training the entailment verifier, not for QA evaluation. This is a separate use case.
 
 #### FAISS Index Building for Wikipedia ❌
 **Proposal Requirement:**
@@ -331,7 +412,7 @@ Storage: W&B run with tagged artifacts + local JSON backup
 3. ✅ **Add FEVER Score** - COMPLETED: Harmonic mean of label accuracy and evidence recall
 4. ✅ **Add BLEU-4 and ROUGE-L** - COMPLETED: For multi-sentence answers (HotpotQA)
 5. ✅ **Add Abstention Rate** - COMPLETED: Tracks insufficient evidence responses
-6. **Implement dataset loading** - SQuAD v2, NQ, HotpotQA
+6. ✅ **Implement dataset loading** - COMPLETED: SQuAD v2, NQ, HotpotQA with unified schema
 7. **Fix iterative training** - Filter by Factual Precision ≥ 0.85
 
 ### Medium Priority (Important for Completeness)

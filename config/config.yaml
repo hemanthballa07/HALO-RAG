@@ -1,6 +1,23 @@
 # Configuration for Self-Verification RAG Pipeline
 
 # Dataset Configuration
+datasets:
+  active: "squad_v2"  # or "natural_questions", "hotpotqa"
+  sample_limit: null  # Limit number of examples (null = no limit, set to int for testing)
+  splits:
+    train: "train"
+    validation: "validation"
+    test: "test"
+  
+  # Dataset-specific settings
+  squad_v2:
+    cache_dir: null  # Use default cache if null
+  natural_questions:
+    cache_dir: null
+  hotpotqa:
+    cache_dir: null
+
+# Legacy dataset config (for backward compatibility)
 dataset:
   name: "natural_questions"  # or "squad", "trivia_qa"
   train_split: 0.8
@@ -136,6 +153,7 @@ experiments:
 # Paths
 paths:
   data_dir: "./data"
+  cache_dir: "~/.cache/huggingface/datasets/"  # Cache directory for datasets
   model_cache: "./models"
   results_dir: "./results"
   checkpoint_dir: "./checkpoints"
