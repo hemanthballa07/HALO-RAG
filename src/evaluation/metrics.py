@@ -144,26 +144,40 @@ class EvaluationMetrics:
     
     def coverage(
         self,
-        retrieved_docs: List[int],
-        corpus_size: int,
-        k: int = 20
+        answer_text: str,
+        retrieved_texts: List[str]
     ) -> float:
         """
-        Compute Coverage: fraction of corpus covered by top-k retrievals.
+        Compute Coverage Index: fraction of answer tokens that appear in retrieved documents.
+        
+        Proposal definition: Coverage Index = (answer tokens in retrieved docs) / (total answer tokens)
+        Target: Coverage ≥ 0.90
         
         Args:
-            retrieved_docs: List of retrieved document IDs
-            corpus_size: Total corpus size
-            k: Number of top documents to consider
+            answer_text: Generated or ground truth answer text
+            retrieved_texts: List of retrieved document texts
         
         Returns:
-            Coverage score
+            Coverage Index score (0.0 to 1.0)
         """
-        if corpus_size == 0:
+        if not answer_text or not retrieved_texts:
             return 0.0
         
-        unique_docs = len(set(retrieved_docs[:k]))
-        coverage = unique_docs / corpus_size
+        # Tokenize answer (lowercase, split on whitespace)
+        answer_tokens = set(answer_text.lower().split())
+        
+        if len(answer_tokens) == 0:
+            return 0.0
+        
+        # Combine all retrieved texts and tokenize
+        combined_retrieved_text = " ".join(retrieved_texts)
+        retrieved_tokens = set(combined_retrieved_text.lower().split())
+        
+        # Find answer tokens that appear in retrieved documents
+        answer_tokens_in_retrieved = answer_tokens & retrieved_tokens
+        
+        # Coverage Index = answer tokens in retrieved / total answer tokens
+        coverage = len(answer_tokens_in_retrieved) / len(answer_tokens)
         
         return coverage
     
@@ -250,25 +264,28 @@ class EvaluationMetrics:
     
     def verified_f1(
         self,
-        factual_precision: float,
-        factual_recall: float
+        f1_score: float,
+        factual_precision: float
     ) -> float:
         """
-        Compute Verified F1: harmonic mean of factual precision and recall.
+        Compute Verified F1: F1 score multiplied by Factual Precision.
+        
+        Proposal definition (Section 3.1 Stage 4): Verified F1 = F1 × Factual Precision
+        This composite metric shows factuality AND quality together.
+        
+        Examples:
+        - Baseline RAG: F1 = 0.60, Factual Precision = 0.70 → Verified F1 = 0.42
+        - Verified RAG: F1 = 0.58, Factual Precision = 0.92 → Verified F1 = 0.53 (+26%)
+        Target: Verified F1 ≥ 0.52
         
         Args:
-            factual_precision: Factual precision score
-            factual_recall: Factual recall score
+            f1_score: F1 score (token overlap between generated and ground truth)
+            factual_precision: Factual precision score (fraction of claims that are entailed)
         
         Returns:
-            Verified F1 score
+            Verified F1 score (0.0 to 1.0)
         """
-        if factual_precision + factual_recall == 0:
-            return 0.0
-        
-        f1 = 2 * (factual_precision * factual_recall) / (factual_precision + factual_recall)
-        
-        return f1
+        return f1_score * factual_precision
     
     def exact_match(
         self,
@@ -331,7 +348,7 @@ class EvaluationMetrics:
         verification_results: List[Dict[str, any]],
         generated: str,
         ground_truth: str,
-        corpus_size: int,
+        retrieved_texts: List[str],
         ground_truth_claims: Optional[List[str]] = None
     ) -> Dict[str, float]:
         """
@@ -343,7 +360,7 @@ class EvaluationMetrics:
             verification_results: List of verification results
             generated: Generated text
             ground_truth: Ground truth text
-            corpus_size: Total corpus size
+            retrieved_texts: List of retrieved document texts (for coverage calculation)
             ground_truth_claims: Optional list of ground truth claims
         
         Returns:
@@ -359,7 +376,9 @@ class EvaluationMetrics:
         metrics["precision@10"] = self.precision_at_k(retrieved_docs, relevant_docs, 10)
         metrics["mrr"] = self.mrr(retrieved_docs, relevant_docs)
         metrics["ndcg@10"] = self.ndcg_at_k(retrieved_docs, relevant_docs, 10)
-        metrics["coverage"] = self.coverage(retrieved_docs, corpus_size, k=20)
+        
+        # Coverage Index: answer tokens in retrieved docs / total answer tokens
+        metrics["coverage"] = self.coverage(ground_truth, retrieved_texts)
         
         # Verification metrics
         metrics["factual_precision"] = self.factual_precision(verification_results)
@@ -368,14 +387,16 @@ class EvaluationMetrics:
             ground_truth_claims or []
         )
         metrics["hallucination_rate"] = self.hallucination_rate(verification_results)
-        metrics["verified_f1"] = self.verified_f1(
-            metrics["factual_precision"],
-            metrics["factual_recall"]
-        )
         
         # Generation metrics
         metrics["exact_match"] = self.exact_match(generated, ground_truth)
         metrics["f1_score"] = self.f1_score(generated, ground_truth)
+        
+        # Verified F1: F1 × Factual Precision (proposal definition)
+        metrics["verified_f1"] = self.verified_f1(
+            metrics["f1_score"],
+            metrics["factual_precision"]
+        )
         
         return metrics
 

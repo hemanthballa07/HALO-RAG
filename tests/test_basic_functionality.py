@@ -52,9 +52,25 @@ try:
     recall = evaluator.recall_at_k(retrieved, relevant, k=5)
     print(f"   ✓ Recall@5 calculation: {recall:.4f}")
     
-    # Test Verified F1
-    f1 = evaluator.verified_f1(0.9, 0.8)
-    print(f"   ✓ Verified F1 calculation: {f1:.4f}")
+    # Test Verified F1 (F1 × Factual Precision)
+    # Example from proposal: F1 = 0.60, Factual Precision = 0.70 → Verified F1 = 0.42
+    f1_score = 0.60
+    factual_precision = 0.70
+    verified_f1 = evaluator.verified_f1(f1_score, factual_precision)
+    expected_verified_f1 = 0.42
+    assert abs(verified_f1 - expected_verified_f1) < 0.01, f"Verified F1 should be {expected_verified_f1}, got {verified_f1}"
+    print(f"   ✓ Verified F1 calculation: {verified_f1:.4f} (expected: {expected_verified_f1:.4f})")
+    
+    # Test Coverage Index (answer tokens in retrieved docs / total answer tokens)
+    answer_text = "Paris is the capital of France"
+    retrieved_texts = [
+        "Paris is a city in France. The capital of France is Paris.",
+        "France is a country in Europe."
+    ]
+    coverage = evaluator.coverage(answer_text, retrieved_texts)
+    print(f"   ✓ Coverage Index calculation: {coverage:.4f}")
+    # All answer tokens should be in retrieved texts, so coverage should be high
+    assert coverage > 0.8, f"Coverage should be high, got {coverage}"
     
     print("   ✓ Evaluation metrics working correctly")
 except Exception as e:

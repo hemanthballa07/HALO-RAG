@@ -193,7 +193,9 @@ class SelfVerificationRAGPipeline:
             "query": query,
             "generated_text": generated_text,
             "retrieved_docs": retrieved_ids,
+            "retrieved_texts": retrieved_texts,  # Store for coverage calculation
             "reranked_docs": [doc[0] for doc in reranked_docs],
+            "reranked_texts": reranked_texts,  # Store for coverage calculation
             "context": context,
             "claims": claims,
             "verification_results": verification_results,
@@ -226,13 +228,14 @@ class SelfVerificationRAGPipeline:
         results = self.generate(query, **generate_kwargs)
         
         # Compute metrics
+        # Use reranked_texts for coverage (top-k documents used for generation)
         metrics = self.evaluator.compute_all_metrics(
             retrieved_docs=results["retrieved_docs"],
             relevant_docs=relevant_doc_ids,
             verification_results=results["verification_results"]["verification_results"],
             generated=results["generated_text"],
             ground_truth=ground_truth,
-            corpus_size=len(self.corpus),
+            retrieved_texts=results.get("reranked_texts", results.get("retrieved_texts", [])),
             ground_truth_claims=ground_truth_claims
         )
         

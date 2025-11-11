@@ -85,20 +85,24 @@ def run_decoding_strategies_experiment(
             
             # Re-verify
             claims = pipeline.claim_extractor.extract_claims(generated)
+            # Get reranked texts (not IDs) for verification
+            reranked_texts = generation_result.get("reranked_texts", [])
             verification = pipeline.verifier.verify_generation(
                 generated,
-                generation_result["reranked_docs"],
+                reranked_texts,
                 claims
             )
             
             # Evaluate
+            # Get retrieved texts from generation result for coverage calculation
+            retrieved_texts = generation_result.get("reranked_texts", generation_result.get("retrieved_texts", []))
             metrics = evaluator.compute_all_metrics(
                 retrieved_docs=generation_result["retrieved_docs"],
                 relevant_docs=rel_docs,
                 verification_results=verification["verification_results"],
                 generated=generated,
                 ground_truth=gt,
-                corpus_size=len(corpus)
+                retrieved_texts=retrieved_texts
             )
             
             results.append({
