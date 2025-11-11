@@ -78,6 +78,39 @@ python experiments/exp3_threshold_tuning.py --split validation
 python experiments/exp3_threshold_tuning.py --dry-run
 ```
 
+### Experiment 5: Self-Consistency Decoding
+**File**: `exp5_self_consistency.py`
+
+Compares greedy, beam search, and self-consistency decoding strategies.
+
+**Features**:
+- Generate k=5 samples at T=0.7
+- Filter by Factual Precision ≥ 0.9
+- Aggregate via highest Verified F1
+- Compare with greedy and beam search baselines
+
+**Metrics**:
+- Hallucination Rate, F1, Verified F1
+- Compute cost (×k for self-consistency)
+
+**Output**:
+- `results/metrics/exp5_self_consistency.json`
+- `results/metrics/exp5_self_consistency.csv`
+- `results/figures/exp5_decoding_comparison.png`
+
+**Usage**:
+```bash
+# Full experiment
+python experiments/exp5_self_consistency.py --split validation
+
+# Dry run (20 samples, k=5 each = 100 generations)
+python experiments/exp5_self_consistency.py --dry-run
+```
+
+**Acceptance Criteria**:
+- Hallucination Rate drops ≥15% vs baseline
+- Verified F1 increases vs baseline
+
 ## CLI Arguments
 
 All experiments support the following CLI arguments:
@@ -112,11 +145,14 @@ results/
 │   ├── exp2_retrieval.csv
 │   ├── exp2_retrieval_*.json
 │   ├── exp3_threshold_sweep.csv
-│   └── exp3_threshold_tuning.json
+│   ├── exp3_threshold_tuning.json
+│   ├── exp5_self_consistency.json
+│   └── exp5_self_consistency.csv
 └── figures/
     ├── exp2_retrieval_bars.png
     ├── exp3_verified_f1_vs_tau.png
-    └── exp3_precision_vs_recall.png
+    ├── exp3_precision_vs_recall.png
+    └── exp5_decoding_comparison.png
 ```
 
 ## Quick Start
@@ -135,20 +171,24 @@ results/
    python experiments/exp1_baseline.py --dry-run
    python experiments/exp2_retrieval_comparison.py --dry-run
    python experiments/exp3_threshold_tuning.py --dry-run
+   python experiments/exp5_self_consistency.py --dry-run
    
    # Full experiments
    python experiments/exp1_baseline.py --split validation
    python experiments/exp2_retrieval_comparison.py --split validation
    python experiments/exp3_threshold_tuning.py --split validation
+   python experiments/exp5_self_consistency.py --split validation
    ```
 
 3. **Check Results**:
    ```bash
    # View metrics
    cat results/metrics/exp1_baseline.csv
+   cat results/metrics/exp5_self_consistency.csv
    
    # View plots
    open results/figures/exp2_retrieval_bars.png
+   open results/figures/exp5_decoding_comparison.png
    ```
 
 ## Notes
