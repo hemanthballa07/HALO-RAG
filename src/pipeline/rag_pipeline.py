@@ -144,11 +144,14 @@ class SelfVerificationRAGPipeline:
         retrieved_ids = [doc[0] for doc in retrieved_docs]
         
         # Step 2: Cross-encoder reranking
+        # Note: rerank returns (original_index, document, score) tuples
         reranked_docs = self.reranker.rerank(
             query,
             retrieved_texts,
             top_k=top_k_rerank
         )
+        # Map back to original IDs using original_index
+        reranked_ids = [retrieved_ids[doc[0]] for doc in reranked_docs]
         reranked_texts = [doc[1] for doc in reranked_docs]
         context = " ".join(reranked_texts)
         
@@ -194,7 +197,7 @@ class SelfVerificationRAGPipeline:
             "generated_text": generated_text,
             "retrieved_docs": retrieved_ids,
             "retrieved_texts": retrieved_texts,  # Store for coverage calculation
-            "reranked_docs": [doc[0] for doc in reranked_docs],
+            "reranked_docs": reranked_ids,  # Use mapped IDs
             "reranked_texts": reranked_texts,  # Store for coverage calculation
             "context": context,
             "claims": claims,
