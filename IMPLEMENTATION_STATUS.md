@@ -161,41 +161,51 @@ self.faiss_index = faiss.IndexFlatIP(self.embedding_dim)
 
 ### 1. Missing Metrics
 
-#### FEVER Score ❌
+#### FEVER Score ✅ **IMPLEMENTED**
 **Proposal Requirement:**
 ```
 FEVER Score = harmonic_mean(label_accuracy × evidence_recall)
 ```
-**Status:** Not implemented
+**Status:** ✅ Implemented
+- Label accuracy: Fraction of claims correctly labeled (SUPPORTED)
+- Evidence recall: Fraction of ground truth tokens found in retrieved evidence
+- Harmonic mean of both components
 
 #### FactCC Score ❌
 **Proposal Requirement:**
 ```
 FactCC Score: Correlation with human factual judgments
 ```
-**Status:** Not implemented
+**Status:** Not implemented (lower priority, can use pretrained FactCC if available)
 
-#### BLEU-4 ❌
+#### BLEU-4 ✅ **IMPLEMENTED**
 **Proposal Requirement:**
 ```
 BLEU-4: Text similarity for multi-sentence answers (use for HotpotQA)
 ```
-**Status:** Not implemented (rouge-score in requirements but not used)
+**Status:** ✅ Implemented using NLTK's sentence_bleu with smoothing
+- Uses 4-gram precision with equal weights (0.25, 0.25, 0.25, 0.25)
+- Includes smoothing function for handling zero counts
 
-#### ROUGE-L ❌
+#### ROUGE-L ✅ **IMPLEMENTED**
 **Proposal Requirement:**
 ```
 ROUGE-L: Text similarity for multi-sentence answers
 ```
-**Status:** Not implemented
+**Status:** ✅ Implemented using rouge-score package
+- Measures longest common subsequence (LCS) based F-score
+- Uses stemmer for better matching
 
-#### Abstention Rate ❌
+#### Abstention Rate ✅ **IMPLEMENTED**
 **Proposal Requirement:**
 ```
 Abstention Rate: % of "insufficient evidence" responses
 Should ↑ as verification strengthens
 ```
-**Status:** Not implemented
+**Status:** ✅ Implemented
+- Detects common abstention phrases ("cannot answer", "insufficient evidence", etc.)
+- Returns 1.0 for abstention, 0.0 for normal answers
+- Can be aggregated across multiple examples to get overall abstention rate
 
 ### 2. Missing Features
 
@@ -318,10 +328,11 @@ Storage: W&B run with tagged artifacts + local JSON backup
 ### High Priority (Critical for Proposal)
 1. ✅ **Fix Verified F1 calculation** - COMPLETED: Now uses F1 × Factual Precision
 2. ✅ **Implement Coverage Index** - COMPLETED: Now measures answer token coverage
-3. **Add FEVER Score** - Required metric
-4. **Add BLEU-4 and ROUGE-L** - Required for HotpotQA evaluation
-5. **Implement dataset loading** - SQuAD v2, NQ, HotpotQA
-6. **Fix iterative training** - Filter by Factual Precision ≥ 0.85
+3. ✅ **Add FEVER Score** - COMPLETED: Harmonic mean of label accuracy and evidence recall
+4. ✅ **Add BLEU-4 and ROUGE-L** - COMPLETED: For multi-sentence answers (HotpotQA)
+5. ✅ **Add Abstention Rate** - COMPLETED: Tracks insufficient evidence responses
+6. **Implement dataset loading** - SQuAD v2, NQ, HotpotQA
+7. **Fix iterative training** - Filter by Factual Precision ≥ 0.85
 
 ### Medium Priority (Important for Completeness)
 7. **Add FactCC Score** - Mentioned in proposal

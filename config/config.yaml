@@ -96,6 +96,10 @@ evaluation:
     - "verified_f1"
     - "exact_match"
     - "f1_score"
+    - "bleu4"
+    - "rouge_l"
+    - "fever_score"
+    - "abstention_rate"
   
   targets:
     recall_at_20: 0.95

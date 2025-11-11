@@ -8,6 +8,20 @@ from typing import List, Dict, Tuple, Optional
 from collections import defaultdict
 import re
 
+# For BLEU-4
+try:
+    from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
+    NLTK_AVAILABLE = True
+except ImportError:
+    NLTK_AVAILABLE = False
+
+# For ROUGE-L
+try:
+    from rouge_score import rouge_scorer
+    ROUGE_AVAILABLE = True
+except ImportError:
+    ROUGE_AVAILABLE = False
+
 
 class EvaluationMetrics:
     """
@@ -341,6 +355,178 @@ class EvaluationMetrics:
         
         return f1
     
+    def bleu4(
+        self,
+        generated: str,
+        ground_truth: str
+    ) -> float:
+        """
+        Compute BLEU-4 score for multi-sentence answers.
+        
+        Proposal requirement: BLEU-4 for text similarity (use for HotpotQA).
+        
+        Args:
+            generated: Generated text
+            ground_truth: Ground truth text
+        
+        Returns:
+            BLEU-4 score (0.0 to 1.0)
+        """
+        if not NLTK_AVAILABLE:
+            # Fallback: return 0.0 if NLTK not available
+            return 0.0
+        
+        # Tokenize
+        gen_tokens = generated.lower().split()
+        gt_tokens = ground_truth.lower().split()
+        
+        if len(gen_tokens) == 0 or len(gt_tokens) == 0:
+            return 0.0
+        
+        # BLEU-4 with smoothing
+        smoothing = SmoothingFunction().method1
+        score = sentence_bleu(
+            [gt_tokens],
+            gen_tokens,
+            smoothing_function=smoothing,
+            weights=(0.25, 0.25, 0.25, 0.25)  # BLEU-4 weights
+        )
+        
+        return float(score)
+    
+    def rouge_l(
+        self,
+        generated: str,
+        ground_truth: str
+    ) -> float:
+        """
+        Compute ROUGE-L score for multi-sentence answers.
+        
+        Proposal requirement: ROUGE-L for text similarity.
+        ROUGE-L measures longest common subsequence (LCS) based F-score.
+        
+        Args:
+            generated: Generated text
+            ground_truth: Ground truth text
+        
+        Returns:
+            ROUGE-L F1 score (0.0 to 1.0)
+        """
+        if not ROUGE_AVAILABLE:
+            # Fallback: return 0.0 if rouge_score not available
+            return 0.0
+        
+        scorer = rouge_scorer.RougeScorer(['rougeL'], use_stemmer=True)
+        scores = scorer.score(ground_truth, generated)
+        
+        # Return F1 score (harmonic mean of precision and recall)
+        return float(scores['rougeL'].fmeasure)
+    
+    def fever_score(
+        self,
+        verification_results: List[Dict[str, any]],
+        retrieved_texts: List[str],
+        ground_truth: str
+    ) -> float:
+        """
+        Compute FEVER Score: harmonic mean of label accuracy and evidence recall.
+        
+        Proposal requirement: FEVER Score = harmonic_mean(label_accuracy × evidence_recall)
+        
+        FEVER Score measures:
+        - Label accuracy: Fraction of claims correctly labeled (SUPPORTED/REFUTED/NO_EVIDENCE)
+        - Evidence recall: Fraction of ground truth tokens found in retrieved evidence
+        
+        Args:
+            verification_results: List of verification results with labels
+            retrieved_texts: List of retrieved document texts (evidence)
+            ground_truth: Ground truth answer text
+        
+        Returns:
+            FEVER Score (0.0 to 1.0)
+        """
+        if len(verification_results) == 0:
+            return 0.0
+        
+        # Label accuracy: Fraction of claims that are entailed (SUPPORTED)
+        # For FEVER, we consider a claim SUPPORTED if entailment_score > threshold
+        num_supported = sum(
+            1 for r in verification_results
+            if r.get("is_entailed", False)
+        )
+        label_accuracy = num_supported / len(verification_results) if len(verification_results) > 0 else 0.0
+        
+        # Evidence recall: Fraction of ground truth tokens found in retrieved evidence
+        if not ground_truth or not retrieved_texts:
+            evidence_recall = 0.0
+        else:
+            gt_tokens = set(ground_truth.lower().split())
+            combined_evidence = " ".join(retrieved_texts).lower()
+            evidence_tokens = set(combined_evidence.split())
+            
+            if len(gt_tokens) == 0:
+                evidence_recall = 0.0
+            else:
+                gt_tokens_in_evidence = gt_tokens & evidence_tokens
+                evidence_recall = len(gt_tokens_in_evidence) / len(gt_tokens)
+        
+        # FEVER Score: Harmonic mean of label accuracy and evidence recall
+        if label_accuracy + evidence_recall == 0:
+            return 0.0
+        
+        fever_score = 2 * (label_accuracy * evidence_recall) / (label_accuracy + evidence_recall)
+        
+        return fever_score
+    
+    def abstention_rate(
+        self,
+        generated: str
+    ) -> float:
+        """
+        Compute Abstention Rate: % of "insufficient evidence" responses.
+        
+        Proposal requirement: Abstention Rate should increase as verification strengthens.
+        System should respond with "Cannot answer based on context" when insufficient evidence.
+        
+        Args:
+            generated: Generated text
+        
+        Returns:
+            Abstention rate (0.0 to 1.0), where 1.0 means all responses are abstentions
+        """
+        if not generated:
+            return 0.0
+        
+        generated_lower = generated.lower().strip()
+        
+        # Check for common abstention phrases
+        abstention_phrases = [
+            "cannot answer",
+            "cannot be answered",
+            "insufficient evidence",
+            "no information",
+            "not enough information",
+            "unable to answer",
+            "cannot determine",
+            "cannot provide",
+            "no answer",
+            "not available"
+        ]
+        
+        # Check if generated text contains any abstention phrase
+        is_abstention = any(phrase in generated_lower for phrase in abstention_phrases)
+        
+        # Also check if the text is very short (might indicate abstention)
+        # or if it's exactly one of the abstention phrases
+        if len(generated_lower.split()) <= 3:
+            # Very short responses might be abstentions
+            is_abstention = is_abstention or any(
+                generated_lower == phrase or generated_lower.startswith(phrase)
+                for phrase in abstention_phrases
+            )
+        
+        return 1.0 if is_abstention else 0.0
+    
     def compute_all_metrics(
         self,
         retrieved_docs: List[int],
@@ -364,7 +550,11 @@ class EvaluationMetrics:
             ground_truth_claims: Optional list of ground truth claims
         
         Returns:
-            Dictionary of all metric scores
+            Dictionary of all metric scores including:
+            - Retrieval: recall@k, precision@k, mrr, ndcg@10, coverage
+            - Verification: factual_precision, factual_recall, hallucination_rate, fever_score
+            - Generation: exact_match, f1_score, bleu4, rouge_l, abstention_rate
+            - Composite: verified_f1
         """
         metrics = {}
         
@@ -397,6 +587,22 @@ class EvaluationMetrics:
             metrics["f1_score"],
             metrics["factual_precision"]
         )
+        
+        # BLEU-4: For multi-sentence answers (HotpotQA)
+        metrics["bleu4"] = self.bleu4(generated, ground_truth)
+        
+        # ROUGE-L: For multi-sentence answers
+        metrics["rouge_l"] = self.rouge_l(generated, ground_truth)
+        
+        # FEVER Score: Harmonic mean of label accuracy and evidence recall
+        metrics["fever_score"] = self.fever_score(
+            verification_results,
+            retrieved_texts,
+            ground_truth
+        )
+        
+        # Abstention Rate: % of "insufficient evidence" responses
+        metrics["abstention_rate"] = self.abstention_rate(generated)
         
         return metrics
 
