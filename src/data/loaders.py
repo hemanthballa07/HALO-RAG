@@ -6,7 +6,7 @@ Normalizes all datasets to a unified schema.
 import os
 import re
 from typing import List, Dict, Any, Optional, Tuple
-from datasets import load_dataset, Dataset
+from datasets import load_dataset as hf_load_dataset, Dataset
 import logging
 
 logger = logging.getLogger(__name__)
@@ -102,7 +102,7 @@ def load_squad_v2(
     logger.info(f"Loading SQuAD v2.0 dataset (split: {split})...")
     
     try:
-        dataset = load_dataset("squad_v2", cache_dir=cache_dir, split=split)
+        dataset = hf_load_dataset("squad_v2", cache_dir=cache_dir, split=split)
     except Exception as e:
         logger.error(f"Failed to load SQuAD v2: {e}")
         raise
@@ -170,7 +170,7 @@ def load_natural_questions(
     
     try:
         # Natural Questions structure is complex - load the full dataset
-        dataset = load_dataset("natural_questions", cache_dir=cache_dir, split=split)
+        dataset = hf_load_dataset("natural_questions", cache_dir=cache_dir, split=split)
     except Exception as e:
         logger.error(f"Failed to load Natural Questions: {e}")
         raise
@@ -311,13 +311,13 @@ def load_hotpotqa(
     logger.info(f"Loading HotpotQA dataset (split: {split})...")
     
     try:
-        dataset = load_dataset("hotpot_qa", "fullwiki", cache_dir=cache_dir, split=split)
+        dataset = hf_load_dataset("hotpot_qa", "fullwiki", cache_dir=cache_dir, split=split)
     except Exception as e:
         logger.error(f"Failed to load HotpotQA: {e}")
         # Try alternative: "distractor" split
         try:
             logger.info("Trying HotpotQA distractor split...")
-            dataset = load_dataset("hotpot_qa", "distractor", cache_dir=cache_dir, split=split)
+            dataset = hf_load_dataset("hotpot_qa", "distractor", cache_dir=cache_dir, split=split)
         except Exception as e2:
             logger.error(f"Failed to load HotpotQA distractor: {e2}")
             raise
