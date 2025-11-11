@@ -152,6 +152,36 @@ python experiments/exp6_iterative_training.py --limit 200 --iterations 3
 - Verified pool strictly respects Factual Precision ≥ 0.85
 - F1/EM stable or slightly increases
 
+### Human Evaluation
+**Files**: `generate_human_eval_samples.py`, `score_human_eval.py`
+
+Generate samples for human evaluation and compute agreement metrics.
+
+**Features**:
+- Generate 100 samples for annotation
+- Create CSV with columns: id, question, context, generated_answer, gold_answer, auto_label, human_label, notes
+- Compute Human–Verifier Agreement (percent match + Cohen's κ)
+- Log metrics to JSON and W&B
+
+**Output**:
+- `results/human_eval/human_eval_samples.csv` (100 samples for annotation)
+- `results/human_eval/README.md` (annotation instructions)
+- `results/metrics/human_eval_agreement.json` (agreement metrics)
+
+**Usage**:
+```bash
+# Generate samples
+python experiments/generate_human_eval_samples.py --num-samples 100 --split validation
+
+# Score agreement (after annotation)
+python experiments/score_human_eval.py --csv results/human_eval/human_eval_samples.csv
+```
+
+**Acceptance Criteria**:
+- 100 rows generated; annotators can fill in human_label
+- Scorer runs end-to-end and reports agreement ≥ 0.85
+- Cohen's κ ≥ 0.70 (substantial agreement)
+
 ## CLI Arguments
 
 All experiments support the following CLI arguments:

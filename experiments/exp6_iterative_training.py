@@ -401,6 +401,11 @@ def run_iterative_training(
     
     logger.info(f"Baseline metrics: {baseline_metrics}")
     
+    # Log baseline to W&B
+    if wandb_run:
+        baseline_metrics_with_iter = {**baseline_metrics, "iteration": 0}
+        log_metrics(baseline_metrics_with_iter, prefix="iteration_0/")
+    
     # Iterations 1 to N
     checkpoint_path = None
     

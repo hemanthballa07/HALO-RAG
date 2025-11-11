@@ -158,11 +158,30 @@ class EntailmentVerifier:
         
         verification_results = []
         for claim in claims:
+            # Get full verification result (contradiction, neutral, entailment scores)
+            full_result = self.verify_claim(claim, combined_context)
             is_entailed, score = self.is_entailed(claim, combined_context)
+            
+            # Determine label based on scores
+            entailment_score = full_result["entailment"]
+            contradiction_score = full_result["contradiction"]
+            neutral_score = full_result["neutral"]
+            
+            # Label: highest probability wins
+            if entailment_score >= self.threshold:
+                label = "ENTAILED"
+            elif contradiction_score > neutral_score and contradiction_score > 0.5:
+                label = "CONTRADICTED"
+            else:
+                label = "NO_EVIDENCE"
+            
             verification_results.append({
                 "claim": claim,
                 "is_entailed": is_entailed,
                 "entailment_score": score,
+                "contradiction_score": contradiction_score,
+                "neutral_score": neutral_score,
+                "label": label,
                 "threshold": self.threshold
             })
         
