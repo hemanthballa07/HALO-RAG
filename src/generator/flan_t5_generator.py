@@ -79,11 +79,12 @@ class FLANT5Generator:
         # Configure LoRA
         if lora_checkpoint:
             # Load fine-tuned LoRA weights
+            # For iterative training, keep as PEFT model (don't merge)
             self.model = PeftModel.from_pretrained(
                 self.model,
                 lora_checkpoint
             )
-            self.model = self.model.merge_and_unload()  # Merge LoRA weights
+            # Don't merge - keep as PEFT model for further fine-tuning
         else:
             # Set up LoRA configuration
             lora_config = LoraConfig(
@@ -97,7 +98,7 @@ class FLANT5Generator:
             
             # Add LoRA adapters (but don't load checkpoint)
             # Only add if we're planning to fine-tune
-            if not lora_checkpoint:
+            if use_qlora:
                 self.model = get_peft_model(self.model, lora_config)
         
         self.model.eval()

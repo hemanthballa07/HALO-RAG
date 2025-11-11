@@ -1,6 +1,23 @@
 # Configuration for Self-Verification RAG Pipeline
 
 # Dataset Configuration
+datasets:
+  active: "squad_v2"  # or "natural_questions", "hotpotqa"
+  sample_limit: null  # Limit number of examples (null = no limit, set to int for testing)
+  splits:
+    train: "train"
+    validation: "validation"
+    test: "test"
+  
+  # Dataset-specific settings
+  squad_v2:
+    cache_dir: null  # Use default cache if null
+  natural_questions:
+    cache_dir: null
+  hotpotqa:
+    cache_dir: null
+
+# Legacy dataset config (for backward compatibility)
 dataset:
   name: "natural_questions"  # or "squad", "trivia_qa"
   train_split: 0.8
@@ -58,6 +75,7 @@ verification:
   mnli_checkpoint: "microsoft/deberta-v3-large"
   fever_checkpoint: "microsoft/deberta-v3-large"
   threshold: 0.75  # τ (tau) - optimal threshold to be tuned
+  accept_min: 0.85  # Minimum factual precision for verified data collection (Exp6)
   claim_extraction:
     method: "spacy_svo"
     model: "en_core_web_sm"
@@ -96,6 +114,10 @@ evaluation:
     - "verified_f1"
     - "exact_match"
     - "f1_score"
+    - "bleu4"
+    - "rouge_l"
+    - "fever_score"
+    - "abstention_rate"
   
   targets:
     recall_at_20: 0.95
@@ -128,10 +150,24 @@ experiments:
   num_runs: 3  # For statistical significance
   device: "cuda"  # Use "cuda" for GPU, "cpu" for CPU
   mixed_precision: true
+  
+  # Experiment 5: Self-Consistency Decoding
+  exp5:
+    k: 5  # Number of samples for self-consistency
+    temperature: 0.7  # Sampling temperature
+    factual_precision_threshold: 0.9  # Minimum factual precision to keep answer
+    aggregation_method: "highest_verified_f1"  # "majority_vote" or "highest_verified_f1"
+  
+  # Experiment 6: Iterative Fine-Tuning
+  exp6:
+    iterations: 3  # Number of fine-tuning iterations
+    train_limit: null  # Limit training examples (null = no limit, set for smoke tests)
+    top_k_passages: 5  # Number of top passages to include in training triples
 
 # Paths
 paths:
   data_dir: "./data"
+  cache_dir: "~/.cache/huggingface/datasets/"  # Cache directory for datasets
   model_cache: "./models"
   results_dir: "./results"
   checkpoint_dir: "./checkpoints"

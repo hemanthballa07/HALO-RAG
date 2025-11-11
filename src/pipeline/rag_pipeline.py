@@ -40,6 +40,7 @@ class SelfVerificationRAGPipeline:
         sparse_weight: float = 0.4,
         device: str = "cuda",
         use_qlora: bool = True,
+        generator_lora_checkpoint: Optional[str] = None,
         enable_revision: bool = True,
         max_revision_iterations: int = 3
     ):
@@ -87,6 +88,7 @@ class SelfVerificationRAGPipeline:
         self.generator = FLANT5Generator(
             model_name=generator_model,
             device=device,
+            lora_checkpoint=generator_lora_checkpoint,
             use_qlora=use_qlora
         )
         
@@ -121,7 +123,11 @@ class SelfVerificationRAGPipeline:
         query: str,
         top_k_retrieve: int = 20,
         top_k_rerank: int = 5,
-        max_revision_iterations: Optional[int] = None
+        max_revision_iterations: Optional[int] = None,
+        temperature: Optional[float] = None,
+        do_sample: Optional[bool] = None,
+        num_beams: Optional[int] = None,
+        **generation_kwargs
     ) -> Dict[str, Any]:
         """
         Generate answer with self-verification.
@@ -131,6 +137,10 @@ class SelfVerificationRAGPipeline:
             top_k_retrieve: Number of documents to retrieve
             top_k_rerank: Number of documents to rerank
             max_revision_iterations: Maximum revision iterations (overrides init)
+            temperature: Sampling temperature (overrides config)
+            do_sample: Whether to use sampling (overrides config)
+            num_beams: Number of beams for beam search (overrides config)
+            **generation_kwargs: Additional generation parameters
         
         Returns:
             Dictionary with generation results and verification
@@ -144,16 +154,29 @@ class SelfVerificationRAGPipeline:
         retrieved_ids = [doc[0] for doc in retrieved_docs]
         
         # Step 2: Cross-encoder reranking
+        # Note: rerank returns (original_index, document, score) tuples
         reranked_docs = self.reranker.rerank(
             query,
             retrieved_texts,
             top_k=top_k_rerank
         )
+        # Map back to original IDs using original_index
+        reranked_ids = [retrieved_ids[doc[0]] for doc in reranked_docs]
         reranked_texts = [doc[1] for doc in reranked_docs]
         context = " ".join(reranked_texts)
         
         # Step 3: Generation
-        generated_text = self.generator.generate(query, context)
+        # Use generation parameters if provided
+        gen_kwargs = {}
+        if temperature is not None:
+            gen_kwargs["temperature"] = temperature
+        if do_sample is not None:
+            gen_kwargs["do_sample"] = do_sample
+        if num_beams is not None:
+            gen_kwargs["num_beams"] = num_beams
+        gen_kwargs.update(generation_kwargs)
+        
+        generated_text = self.generator.generate(query, context, **gen_kwargs)
         
         # Step 4: Claim extraction
         claims = self.claim_extractor.extract_claims(generated_text)
@@ -193,7 +216,9 @@ class SelfVerificationRAGPipeline:
             "query": query,
             "generated_text": generated_text,
             "retrieved_docs": retrieved_ids,
-            "reranked_docs": [doc[0] for doc in reranked_docs],
+            "retrieved_texts": retrieved_texts,  # Store for coverage calculation
+            "reranked_docs": reranked_ids,  # Use mapped IDs
+            "reranked_texts": reranked_texts,  # Store for coverage calculation
             "context": context,
             "claims": claims,
             "verification_results": verification_results,
@@ -226,13 +251,14 @@ class SelfVerificationRAGPipeline:
         results = self.generate(query, **generate_kwargs)
         
         # Compute metrics
+        # Use reranked_texts for coverage (top-k documents used for generation)
         metrics = self.evaluator.compute_all_metrics(
             retrieved_docs=results["retrieved_docs"],
             relevant_docs=relevant_doc_ids,
             verification_results=results["verification_results"]["verification_results"],
             generated=results["generated_text"],
             ground_truth=ground_truth,
-            corpus_size=len(self.corpus),
+            retrieved_texts=results.get("reranked_texts", results.get("retrieved_texts", [])),
             ground_truth_claims=ground_truth_claims
         )
         
