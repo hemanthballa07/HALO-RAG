@@ -14,7 +14,7 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 import yaml
-from src.data import load_dataset, normalize_text, validate_example
+from src.data import load_dataset_from_config, normalize_text, validate_example
 
 def load_config(config_path: str = "config/config.yaml"):
     """Load configuration."""
@@ -47,15 +47,10 @@ def check_dataset_loading():
     print(f"Sample limit: {sample_limit if sample_limit else 'None (load all)'}")
     print(f"Cache directory: {cache_dir if cache_dir else 'Default'}")
     
-    # Load dataset
+    # Load dataset from config
     try:
-        print(f"\nLoading {active_dataset}...")
-        examples = load_dataset(
-            dataset_name=active_dataset,
-            split="train",
-            limit=sample_limit,
-            cache_dir=cache_dir
-        )
+        print(f"\nLoading {active_dataset} from config...")
+        examples = load_dataset_from_config(config, split="train")
         print(f"✓ Successfully loaded {len(examples)} examples")
     except Exception as e:
         print(f"✗ Failed to load dataset: {e}")
