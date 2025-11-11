@@ -40,6 +40,7 @@ class SelfVerificationRAGPipeline:
         sparse_weight: float = 0.4,
         device: str = "cuda",
         use_qlora: bool = True,
+        generator_lora_checkpoint: Optional[str] = None,
         enable_revision: bool = True,
         max_revision_iterations: int = 3
     ):
@@ -87,6 +88,7 @@ class SelfVerificationRAGPipeline:
         self.generator = FLANT5Generator(
             model_name=generator_model,
             device=device,
+            lora_checkpoint=generator_lora_checkpoint,
             use_qlora=use_qlora
         )
         

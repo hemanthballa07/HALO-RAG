@@ -14,6 +14,13 @@ from .loaders import (
     validate_example
 )
 
+from .verified_collector import (
+    collect_verified_data,
+    save_verified_data,
+    load_verified_data,
+    compute_diversity_stats
+)
+
 __all__ = [
     "load_squad_v2",
     "load_natural_questions",
@@ -22,6 +29,10 @@ __all__ = [
     "load_dataset_from_config",
     "prepare_for_experiments",
     "normalize_text",
-    "validate_example"
+    "validate_example",
+    "collect_verified_data",
+    "save_verified_data",
+    "load_verified_data",
+    "compute_diversity_stats"
 ]
 

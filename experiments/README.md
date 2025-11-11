@@ -111,6 +111,47 @@ python experiments/exp5_self_consistency.py --dry-run
 - Hallucination Rate drops ≥15% vs baseline
 - Verified F1 increases vs baseline
 
+### Experiment 6: Iterative Fine-Tuning
+**File**: `exp6_iterative_training.py`
+
+Collects verified data (FP ≥ 0.85) and fine-tunes FLAN-T5 iteratively.
+
+**Features**:
+- Collect verified training data with Factual Precision ≥ 0.85
+- Create training triples: (question, top-k passages, verified_answer)
+- Fine-tune FLAN-T5 with QLoRA on accept set
+- Repeat for 3 iterations (Iter0 baseline → Iter1 → Iter2 → Iter3)
+- Track metrics across iterations
+
+**Metrics**:
+- Hallucination Rate, Factual Precision, F1, EM, Verified F1, Abstention Rate
+- Diversity stats (type-token ratio, avg length)
+
+**Output**:
+- `results/metrics/exp6_iterative_training.csv`
+- `results/metrics/exp6_iterative_training.json`
+- `results/figures/exp6_iteration_curves.png`
+- `data/verified/train_iter{N}.jsonl` (verified training triples)
+- `checkpoints/exp6_iter{N}/` (saved adapters)
+
+**Usage**:
+```bash
+# Full experiment (3 iterations)
+python experiments/exp6_iterative_training.py --iterations 3
+
+# Dry run (≤100 examples)
+python experiments/exp6_iterative_training.py --dry-run
+
+# Custom limit
+python experiments/exp6_iterative_training.py --limit 200 --iterations 3
+```
+
+**Acceptance Criteria**:
+- Hallucination Rate drops toward ≤0.10 by Iter3
+- Verified F1 increases each iteration
+- Verified pool strictly respects Factual Precision ≥ 0.85
+- F1/EM stable or slightly increases
+
 ## CLI Arguments
 
 All experiments support the following CLI arguments:
@@ -147,12 +188,27 @@ results/
 │   ├── exp3_threshold_sweep.csv
 │   ├── exp3_threshold_tuning.json
 │   ├── exp5_self_consistency.json
-│   └── exp5_self_consistency.csv
+│   ├── exp5_self_consistency.csv
+│   ├── exp6_iterative_training.json
+│   └── exp6_iterative_training.csv
 └── figures/
     ├── exp2_retrieval_bars.png
     ├── exp3_verified_f1_vs_tau.png
     ├── exp3_precision_vs_recall.png
-    └── exp5_decoding_comparison.png
+    ├── exp5_decoding_comparison.png
+    └── exp6_iteration_curves.png
+
+data/
+└── verified/
+    ├── train_iter1.jsonl
+    ├── train_iter2.jsonl
+    └── train_iter3.jsonl
+
+checkpoints/
+└── exp6/
+    ├── iter1/
+    ├── iter2/
+    └── iter3/
 ```
 
 ## Quick Start
@@ -172,12 +228,14 @@ results/
    python experiments/exp2_retrieval_comparison.py --dry-run
    python experiments/exp3_threshold_tuning.py --dry-run
    python experiments/exp5_self_consistency.py --dry-run
+   python experiments/exp6_iterative_training.py --dry-run
    
    # Full experiments
    python experiments/exp1_baseline.py --split validation
    python experiments/exp2_retrieval_comparison.py --split validation
    python experiments/exp3_threshold_tuning.py --split validation
    python experiments/exp5_self_consistency.py --split validation
+   python experiments/exp6_iterative_training.py --iterations 3
    ```
 
 3. **Check Results**:
