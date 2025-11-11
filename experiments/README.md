@@ -152,6 +152,85 @@ python experiments/exp6_iterative_training.py --limit 200 --iterations 3
 - Verified pool strictly respects Factual Precision ≥ 0.85
 - F1/EM stable or slightly increases
 
+### Experiment 7: Ablation Study
+**File**: `exp7_ablation_study.py`
+
+Performs component-wise ablation study to measure impact of each module.
+
+**Ablation Variants**:
+- Full system (baseline): Hybrid retrieval + Reranking + NLI verification + Revision
+- No reranking: Removes cross-encoder reranking
+- No verification: Pure RAG (no verification, no revision)
+- No revision: Verification but no adaptive revision
+- Simple verifier: Lexical overlap instead of NLI verification
+
+**Metrics**:
+- Verified F1, Factual Precision, Hallucination Rate
+- EM, F1 Score
+
+**Output**:
+- `results/metrics/exp7_ablation.csv`
+- `results/metrics/exp7_ablation.json`
+- `results/figures/exp7_ablation_bars.png`
+
+**Usage**:
+```bash
+# Full experiment
+python experiments/exp7_ablation_study.py --split validation
+
+# Dry run (50 examples)
+python experiments/exp7_ablation_study.py --dry-run
+
+# Custom limit
+python experiments/exp7_ablation_study.py --limit 100 --split validation
+```
+
+**Acceptance Criteria**:
+- Clear ranking of components by impact
+- Verified F1 drops show verification > reranking > revision > simple verifier
+- All metrics computed for all variants
+- Artifacts generated (CSV, JSON, plots)
+
+### Experiment 8: Stress Testing & Pareto Frontier
+**File**: `exp8_stress_test.py`
+
+Evaluates robustness and trade-offs between accuracy and factuality through comprehensive stress testing.
+
+**Stress Tests**:
+- τ-Sweep (Re-verification): τ ∈ {0.5, 0.6, 0.7, 0.75, 0.8, 0.85, 0.9}
+- Retrieval Degradation: Recall@20 ∈ {0.95, 0.85, 0.75, 0.65}
+- Verifier Off: Disable verification and measure hallucination rate increase
+
+**Metrics**:
+- Factual Precision, Factual Recall, Verified F1
+- Hallucination Rate, Abstention Rate
+- EM, F1 Score
+
+**Output**:
+- `results/metrics/exp8_stress.csv`
+- `results/metrics/exp8_stress.json`
+- `results/figures/exp8_verified_f1_vs_tau.png`
+- `results/figures/exp8_precision_vs_recall.png`
+- `results/figures/exp8_pareto_frontier.png`
+
+**Usage**:
+```bash
+# Full experiment
+python experiments/exp8_stress_test.py --split validation
+
+# Dry run (50 examples)
+python experiments/exp8_stress_test.py --dry-run
+
+# Custom limit
+python experiments/exp8_stress_test.py --limit 100 --split validation
+```
+
+**Acceptance Criteria**:
+- Verified RAG dominates baseline on Pareto plot (higher EM & factuality)
+- τ ≈ 0.75–0.80 yields best Verified F1 (≥ 0.52)
+- Retrieval quality correlates strongly with factual precision
+- Artifacts + plots saved and logged (W&B optional)
+
 ### Human Evaluation
 **Files**: `generate_human_eval_samples.py`, `score_human_eval.py`
 
@@ -220,13 +299,22 @@ results/
 │   ├── exp5_self_consistency.json
 │   ├── exp5_self_consistency.csv
 │   ├── exp6_iterative_training.json
-│   └── exp6_iterative_training.csv
+│   ├── exp6_iterative_training.csv
+│   ├── exp7_ablation.json
+│   ├── exp7_ablation.csv
+│   ├── exp8_stress.json
+│   ├── exp8_stress.csv
+│   └── human_eval_agreement.json
 └── figures/
     ├── exp2_retrieval_bars.png
     ├── exp3_verified_f1_vs_tau.png
     ├── exp3_precision_vs_recall.png
     ├── exp5_decoding_comparison.png
-    └── exp6_iteration_curves.png
+    ├── exp6_iteration_curves.png
+    ├── exp7_ablation_bars.png
+    ├── exp8_verified_f1_vs_tau.png
+    ├── exp8_precision_vs_recall.png
+    └── exp8_pareto_frontier.png
 
 data/
 └── verified/
