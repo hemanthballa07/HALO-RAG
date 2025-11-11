@@ -335,9 +335,9 @@ Storage: W&B run with tagged artifacts + local JSON backup
 7. **Fix iterative training** - Filter by Factual Precision ≥ 0.85
 
 ### Medium Priority (Important for Completeness)
-7. **Add FactCC Score** - Mentioned in proposal
-8. **Implement self-consistency decoding** - Exp5 requirement
-9. **Add abstention rate** - Required metric
+8. **Add FactCC Score** - Mentioned in proposal (lower priority)
+9. **Implement self-consistency decoding** - Exp5 requirement
+10. **Integrate W&B logging** - For experiment tracking and reproducibility
 10. **Implement human evaluation framework** - Stage 5 requirement
 11. **Add W&B logging** - Reproducibility requirement
 12. **Optimize FAISS index** - IVF4096 + PQ64 for scalability
