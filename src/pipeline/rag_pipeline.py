@@ -121,7 +121,11 @@ class SelfVerificationRAGPipeline:
         query: str,
         top_k_retrieve: int = 20,
         top_k_rerank: int = 5,
-        max_revision_iterations: Optional[int] = None
+        max_revision_iterations: Optional[int] = None,
+        temperature: Optional[float] = None,
+        do_sample: Optional[bool] = None,
+        num_beams: Optional[int] = None,
+        **generation_kwargs
     ) -> Dict[str, Any]:
         """
         Generate answer with self-verification.
@@ -131,6 +135,10 @@ class SelfVerificationRAGPipeline:
             top_k_retrieve: Number of documents to retrieve
             top_k_rerank: Number of documents to rerank
             max_revision_iterations: Maximum revision iterations (overrides init)
+            temperature: Sampling temperature (overrides config)
+            do_sample: Whether to use sampling (overrides config)
+            num_beams: Number of beams for beam search (overrides config)
+            **generation_kwargs: Additional generation parameters
         
         Returns:
             Dictionary with generation results and verification
@@ -156,7 +164,17 @@ class SelfVerificationRAGPipeline:
         context = " ".join(reranked_texts)
         
         # Step 3: Generation
-        generated_text = self.generator.generate(query, context)
+        # Use generation parameters if provided
+        gen_kwargs = {}
+        if temperature is not None:
+            gen_kwargs["temperature"] = temperature
+        if do_sample is not None:
+            gen_kwargs["do_sample"] = do_sample
+        if num_beams is not None:
+            gen_kwargs["num_beams"] = num_beams
+        gen_kwargs.update(generation_kwargs)
+        
+        generated_text = self.generator.generate(query, context, **gen_kwargs)
         
         # Step 4: Claim extraction
         claims = self.claim_extractor.extract_claims(generated_text)

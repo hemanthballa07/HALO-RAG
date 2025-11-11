@@ -149,6 +149,13 @@ experiments:
   num_runs: 3  # For statistical significance
   device: "cuda"  # Use "cuda" for GPU, "cpu" for CPU
   mixed_precision: true
+  
+  # Experiment 5: Self-Consistency Decoding
+  exp5:
+    k: 5  # Number of samples for self-consistency
+    temperature: 0.7  # Sampling temperature
+    factual_precision_threshold: 0.9  # Minimum factual precision to keep answer
+    aggregation_method: "highest_verified_f1"  # "majority_vote" or "highest_verified_f1"
 
 # Paths
 paths:
