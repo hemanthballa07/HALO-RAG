@@ -235,7 +235,7 @@ def run_retrieval_comparison(
             log_metrics(final_metrics, prefix=f"retrieval/{method_name}/final/")
     
     return {
-        "aggregated_metrics": aggregated,
+            "aggregated_metrics": aggregated,
         "statistical_comparisons": comparisons,
         "methods": methods,
         "total_queries": len(queries)

@@ -140,13 +140,13 @@ def run_threshold_tuning(
             if all_metrics and metric_name in all_metrics[0]:
                 scores = [m[metric_name] for m in all_metrics if metric_name in m]
                 if scores:
-                    aggregated[metric_name] = {
+            aggregated[metric_name] = {
                         "mean": float(np.mean(scores)),
                         "std": float(np.std(scores)),
                         "min": float(np.min(scores)),
                         "max": float(np.max(scores)),
-                        "scores": scores
-                    }
+                "scores": scores
+            }
         
         threshold_results[threshold] = {
             "aggregated_metrics": aggregated,
@@ -182,9 +182,9 @@ def run_threshold_tuning(
                 optimal_threshold = threshold
     
     return {
-        "threshold_results": threshold_results,
-        "optimal_threshold": optimal_threshold,
-        "optimal_verified_f1": optimal_f1
+            "threshold_results": threshold_results,
+            "optimal_threshold": optimal_threshold,
+            "optimal_verified_f1": optimal_f1
     }
 
 

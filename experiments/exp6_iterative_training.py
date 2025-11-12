@@ -585,7 +585,7 @@ def plot_iteration_curves(results: Dict[str, Any], output_dir: str = "results/fi
     axes[1, 1].legend()
     
     plt.tight_layout()
-    
+            
     # Save figure
     output_path = os.path.join(output_dir, "exp6_iteration_curves.png")
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
@@ -679,7 +679,7 @@ def main():
         train_examples = train_examples[:sample_limit]
         val_examples = val_examples[:min(sample_limit, len(val_examples))]
         print(f"Limited to {len(train_examples)} train and {len(val_examples)} val examples")
-    
+            
     # Prepare for experiments
     train_queries, train_ground_truths, train_relevant_docs, corpus = prepare_for_experiments(train_examples)
     val_queries, val_ground_truths, val_relevant_docs, _ = prepare_for_experiments(val_examples)
@@ -717,7 +717,7 @@ def main():
             sample_limit=sample_limit,
             commit_hash=commit_hash,
             timestamp=timestamp
-        )
+            )
     
     # Run iterative training
     results = run_iterative_training(
