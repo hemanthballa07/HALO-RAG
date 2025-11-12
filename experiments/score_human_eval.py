@@ -24,13 +24,39 @@ try:
     SKLEARN_AVAILABLE = True
 except ImportError:
     SKLEARN_AVAILABLE = False
-    print("Warning: sklearn not available. Cohen's κ will not be computed.")
     
     def cohen_kappa_score(y1, y2):
-        """Placeholder for Cohen's κ when sklearn is not available."""
-        # Simple percent agreement as fallback
-        matches = sum(1 for a, b in zip(y1, y2) if a == b)
-        return matches / len(y1) if len(y1) > 0 else 0.0
+        """
+        Compute Cohen's κ coefficient.
+        
+        κ = (p_o - p_e) / (1 - p_e)
+        where p_o is observed agreement and p_e is expected agreement.
+        """
+        if len(y1) != len(y2):
+            raise ValueError("y1 and y2 must have the same length")
+        
+        n = len(y1)
+        if n == 0:
+            return 0.0
+        
+        # Count agreements
+        p_o = sum(1 for a, b in zip(y1, y2) if a == b) / n
+        
+        # Count label frequencies
+        from collections import Counter
+        y1_counts = Counter(y1)
+        y2_counts = Counter(y2)
+        
+        # Compute expected agreement
+        p_e = sum((y1_counts.get(label, 0) / n) * (y2_counts.get(label, 0) / n) 
+                  for label in set(y1) | set(y2))
+        
+        # Compute Cohen's κ
+        if p_e == 1.0:
+            return 1.0  # Perfect agreement
+        
+        kappa = (p_o - p_e) / (1 - p_e)
+        return kappa
 
 from src.utils import setup_wandb, log_metrics, get_commit_hash, get_timestamp
 
