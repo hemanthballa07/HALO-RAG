@@ -145,12 +145,12 @@ def run_baseline_experiment(
         if metric_name in all_metrics[0]:
             scores = [m[metric_name] for m in all_metrics if metric_name in m]
             if scores:
-                aggregated[metric_name] = {
+        aggregated[metric_name] = {
                     "mean": float(np.mean(scores)),
                     "std": float(np.std(scores)),
                     "min": float(np.min(scores)),
                     "max": float(np.max(scores)),
-                    "scores": scores
+            "scores": scores
                 }
     
     # Log final metrics to W&B
@@ -282,7 +282,7 @@ def main():
         "timestamp": timestamp,
         "total_queries": len(queries),
         "processed_queries": results["processed_queries"]
-    }
+        }
     
     # Save results
     save_results(results)
