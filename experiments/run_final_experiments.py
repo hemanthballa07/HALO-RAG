@@ -52,7 +52,7 @@ def run_experiment(experiment_name: str, seed: int, config_path: str = "config/c
     print(f"{'='*60}")
     
     # Build command
-    cmd = ["python", f"experiments/{experiment_name}.py", 
+    cmd = ["python3", f"experiments/{experiment_name}.py", 
            "--config", config_path,
            "--split", split,
            "--seed", str(seed)]
@@ -87,11 +87,11 @@ def load_experiment_results(experiment_name: str, seed: int) -> Dict[str, Any]:
     # Map experiment names to result files
     result_files = {
         "exp1_baseline": "results/metrics/exp1_baseline.json",
-        "exp2_retrieval_comparison": "results/metrics/exp2_retrieval.csv",  # CSV format
-        "exp3_threshold_tuning": "results/metrics/exp3_threshold_sweep.csv",  # CSV format
+        "exp2_retrieval_comparison": "results/metrics/exp2_retrieval.csv",
+        "exp3_threshold_tuning": "results/metrics/exp3_threshold_sweep.csv",
         "exp5_self_consistency": "results/metrics/exp5_self_consistency.json",
-        "exp6_iterative_training": "results/metrics/exp6_iterative_training.csv",  # CSV format
-        "exp7_ablation_study": "results/metrics/exp7_ablation.csv",  # CSV format
+        "exp6_iterative_training": "results/metrics/exp6_iterative_training.csv",
+        "exp7_ablation_study": "results/metrics/exp7_ablation.csv",
         "exp8_stress_test": "results/metrics/exp8_stress.json",
     }
     
@@ -377,9 +377,8 @@ def main():
     if aggregated_results:
         create_final_summary_csv(aggregated_results)
     
-    # Copy key plots
-    if args.copy_plots:
-        copy_key_plots_to_final()
+    # Copy key plots (always copy if plots exist)
+    copy_key_plots_to_final()
     
     # Save aggregated results to JSON
     results_json_path = "results/metrics/final_aggregated_results.json"
