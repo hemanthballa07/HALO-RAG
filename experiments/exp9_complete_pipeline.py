@@ -188,6 +188,8 @@ def run_complete_pipeline_experiment(
                 "verification_results": result.get("verification_results", {}),
                 "verified": result.get("verification_results", {}).get("verified", False),
                 "revision_iterations": revision_iterations,  # Only in exp9
+                "revision_history": result.get("revision_history", []),  # Include revision history for transparency
+                "abstained": result.get("abstained", False),  # Include abstention flag
                 "metrics": metrics
             })
             

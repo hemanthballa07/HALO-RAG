@@ -114,7 +114,8 @@ class FLANT5Generator:
         top_p: float = 0.95,
         top_k: int = 50,
         do_sample: bool = True,
-        num_beams: int = 1
+        num_beams: int = 1,
+        verified_claims: Optional[List[str]] = None
     ) -> str:
         """
         Generate answer given query and context.
@@ -128,10 +129,16 @@ class FLANT5Generator:
             top_k: Top-k sampling
             do_sample: Whether to use sampling
             num_beams: Number of beams for beam search
+            verified_claims: Optional list of verified claims to incorporate into prompt
         
         Returns:
             Generated text
         """
+        # If verified claims are provided, add them to the context as constraints
+        if verified_claims and len(verified_claims) > 0:
+            verified_text = " Verified facts that must be included: " + " | ".join(verified_claims)
+            context = context + verified_text
+        
         # Format input: "Question: {query} Context: {context} Answer:"
         input_text = f"Question: {query} Context: {context} Answer:"
         

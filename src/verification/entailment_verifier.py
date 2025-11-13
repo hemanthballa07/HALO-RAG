@@ -204,8 +204,12 @@ class EntailmentVerifier:
         Returns:
             Dictionary with verification results
         """
+        # Handle empty claims: if no claims extracted, treat entire text as one claim
+        if not claims:
+            claims = [generated_text.strip()] if generated_text.strip() else []
+        
         # Combine contexts for verification
-        combined_context = " ".join(retrieved_contexts[:3])  # Use top 3 contexts
+        combined_context = " ".join(retrieved_contexts[:3]) if retrieved_contexts else ""  # Use top 3 contexts
         
         verification_results = []
         for claim in claims:
@@ -240,7 +244,11 @@ class EntailmentVerifier:
         num_entailed = sum(1 for r in verification_results if r["is_entailed"])
         num_total = len(verification_results)
         entailment_rate = num_entailed / num_total if num_total > 0 else 0.0
-        avg_score = np.mean([r["entailment_score"] for r in verification_results])
+        # Handle empty list to avoid NaN
+        if verification_results:
+            avg_score = float(np.mean([r["entailment_score"] for r in verification_results]))
+        else:
+            avg_score = 0.0
         
         return {
             "verification_results": verification_results,

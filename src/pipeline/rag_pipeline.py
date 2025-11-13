@@ -190,27 +190,79 @@ class SelfVerificationRAGPipeline:
         
         # Step 6: Adaptive revision (if enabled and verification failed)
         revision_iterations = 0
+        revision_history = []  # Track revision history for transparency
+        abstained = False
+        
         if self.enable_revision and self.revision_strategy:
             if not verification_results.get("verified", False):
                 for iteration in range(max_revision_iterations):
-                    revised_text, new_verification = self.revision_strategy.revise(
+                    # Track revision iteration details
+                    revision_info = {
+                        "iteration": iteration + 1,
+                        "generation_before": generated_text,
+                        "claims_before": claims,
+                        "verification_before": verification_results.copy()
+                    }
+                    
+                    revised_text, new_verification, strategy_metadata = self.revision_strategy.revise(
                         query=query,
                         initial_generation=generated_text,
                         verification_results=verification_results,
                         retrieval_fn=lambda q, top_k=20: self.retriever.retrieve(q, top_k=top_k),
-                        generation_fn=lambda q, ctx: self.generator.generate(q, ctx),
+                        generation_fn=lambda q, ctx, **kwargs: self.generator.generate(q, ctx, **kwargs),
                         verification_fn=lambda gen, ctxs, clms: self.verifier.verify_generation(
                             gen, ctxs, clms
                         ),
+                        claim_extractor_fn=lambda text: self.claim_extractor.extract_claims(text),
                         iteration=iteration
                     )
                     
+                    # Extract claims from revised generation
+                    revised_claims = self.claim_extractor.extract_claims(revised_text)
+                    
+                    # Update revision info with strategy metadata
+                    revision_info["generation_after"] = revised_text
+                    revision_info["claims_after"] = revised_claims
+                    revision_info["verification_after"] = new_verification.copy()
+                    revision_info["strategy"] = strategy_metadata.get("strategy_name", "unknown")
+                    revision_info["prompt_used"] = strategy_metadata.get("prompt_used", None)
+                    
+                    # Add strategy-specific metadata
+                    if strategy_metadata.get("strategy_name") == "re_retrieval":
+                        revision_info["expanded_query"] = strategy_metadata.get("expanded_query", None)
+                        revision_info["failed_claims_used"] = strategy_metadata.get("failed_claims_used", [])
+                    elif strategy_metadata.get("strategy_name") == "constrained_generation":
+                        revision_info["verified_claims"] = strategy_metadata.get("verified_claims", [])
+                    elif strategy_metadata.get("strategy_name") == "claim_by_claim":
+                        revision_info["claim_queries"] = strategy_metadata.get("claim_queries", [])
+                        revision_info["unverified_claims"] = strategy_metadata.get("unverified_claims", [])
+                        revision_info["verified_claims"] = strategy_metadata.get("verified_claims", [])
+                    
+                    revision_history.append(revision_info)
+                    
                     generated_text = revised_text
                     verification_results = new_verification
+                    claims = revised_claims  # Update claims to match revised generation
                     revision_iterations += 1
                     
                     if verification_results.get("verified", False):
                         break
+                
+                # If max iterations reached and still not verified, mark as abstained
+                if not verification_results.get("verified", False) and revision_iterations >= max_revision_iterations:
+                    abstained = True
+                    # Return default "insufficient evidence" response
+                    generated_text = "I cannot provide a confident answer based on the available evidence."
+                    # Update verification results to reflect abstention
+                    verification_results = {
+                        "verification_results": verification_results.get("verification_results", []),
+                        "num_entailed": verification_results.get("num_entailed", 0),
+                        "num_total": verification_results.get("num_total", 0),
+                        "entailment_rate": verification_results.get("entailment_rate", 0.0),
+                        "avg_entailment_score": verification_results.get("avg_entailment_score", 0.0),
+                        "verified": False,
+                        "abstained": True
+                    }
         
         return {
             "query": query,
@@ -223,7 +275,9 @@ class SelfVerificationRAGPipeline:
             "claims": claims,
             "verification_results": verification_results,
             "revision_iterations": revision_iterations,
-            "verified": verification_results.get("verified", False)
+            "revision_history": revision_history,  # Include revision history for transparency
+            "verified": verification_results.get("verified", False),
+            "abstained": abstained
         }
     
     def evaluate(
