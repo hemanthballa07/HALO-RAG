@@ -220,14 +220,19 @@ def fine_tune_iteration(
     # Training arguments
     from transformers import TrainingArguments, Trainer
     
+    # Ensure learning_rate is a float (YAML may parse scientific notation as string)
+    learning_rate = training_config.get("learning_rate", 2e-4)
+    if isinstance(learning_rate, str):
+        learning_rate = float(learning_rate)
+    
     training_args = TrainingArguments(
         output_dir=checkpoint_path,
-        num_train_epochs=training_config.get("num_epochs", 3),
-        per_device_train_batch_size=training_config.get("batch_size", 8),
-        gradient_accumulation_steps=training_config.get("gradient_accumulation_steps", 4),
-        learning_rate=training_config.get("learning_rate", 2e-4),
-        warmup_steps=training_config.get("warmup_steps", 100),
-        logging_steps=training_config.get("logging_steps", 100),
+        num_train_epochs=int(training_config.get("num_epochs", 3)),
+        per_device_train_batch_size=int(training_config.get("batch_size", 8)),
+        gradient_accumulation_steps=int(training_config.get("gradient_accumulation_steps", 4)),
+        learning_rate=learning_rate,
+        warmup_steps=int(training_config.get("warmup_steps", 100)),
+        logging_steps=int(training_config.get("logging_steps", 100)),
         save_strategy="epoch",
         save_total_limit=3,
         fp16=True,
@@ -671,8 +676,21 @@ def main():
     
     # Load datasets
     print("Loading datasets...")
+    print("⚠ IMPORTANT: Exp6 uses 'train' split for fine-tuning and 'validation' split for evaluation")
+    print("   This ensures no data leakage between training and evaluation.")
     train_examples = load_dataset_from_config(config, split="train")
     val_examples = load_dataset_from_config(config, split="validation")
+    
+    # Verify splits are different (sanity check)
+    if len(train_examples) > 0 and len(val_examples) > 0:
+        train_ids = {ex["id"] for ex in train_examples[:100]}  # Check first 100
+        val_ids = {ex["id"] for ex in val_examples[:100]}
+        overlap = train_ids.intersection(val_ids)
+        if overlap:
+            print(f"⚠ WARNING: Found {len(overlap)} overlapping IDs between train and validation splits!")
+            print(f"   This indicates potential data leakage. Please check dataset loading.")
+        else:
+            print("✓ Verified: Train and validation splits have no overlapping examples (checked first 100)")
     
     # Apply sample limit if specified
     if sample_limit:

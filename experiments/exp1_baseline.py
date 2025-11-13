@@ -279,6 +279,11 @@ def main():
     
     # Load dataset
     print("Loading dataset...")
+    if args.split != "validation":
+        print(f"⚠ WARNING: Using '{args.split}' split. For fair comparison with Exp6 and Exp9, use 'validation' split.")
+        print("   Exp6 uses 'train' split for fine-tuning, so evaluation should use 'validation' to avoid data leakage.")
+    else:
+        print("✓ Using 'validation' split (correct for evaluation, avoids data leakage with Exp6 training data)")
     examples = load_dataset_from_config(config, split=args.split)
     
     # Apply sample limit if specified

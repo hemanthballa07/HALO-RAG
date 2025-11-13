@@ -18,7 +18,7 @@ import torch
 import numpy as np
 import yaml
 import argparse
-from typing import List, Dict
+from typing import List, Dict, Optional
 from tqdm import tqdm
 import json
 import os
@@ -28,14 +28,39 @@ from src.data import load_dataset_from_config, prepare_for_experiments
 from src.evaluation import EvaluationMetrics
 
 
-def load_config_and_dataset(config_path: str = "config/config.yaml", split: str = "validation"):
-    """Load configuration and dataset."""
+def load_config_and_dataset(config_path: str = "config/config.yaml", split: str = "validation", limit: Optional[int] = None, seed: int = 42):
+    """
+    Load configuration and dataset.
+    
+    Args:
+        config_path: Path to config file
+        split: Dataset split to use (default: "validation" for evaluation)
+            ⚠ IMPORTANT: Must use "validation" split to match Exp1 baseline and avoid
+            data leakage with Exp6 which uses "train" split for fine-tuning.
+        limit: Limit number of examples (applied deterministically as first N)
+        seed: Random seed for reproducibility (ensures same split as baseline)
+    """
+    import random
+    import numpy as np
+    import torch
+    
+    # Set random seed for reproducibility (matches exp1_baseline.py)
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    
     # Load config
     with open(config_path, 'r') as f:
         config = yaml.safe_load(f)
     
     # Load validation dataset
     val_examples = load_dataset_from_config(config, split=split)
+    
+    # Apply limit deterministically (first N examples, matching exp1_baseline.py)
+    if limit:
+        val_examples = val_examples[:limit]
+        print(f"Limited to {len(val_examples)} examples (first {limit} from {split} split)")
+    
     val_queries, val_ground_truths, val_relevant_docs, corpus = prepare_for_experiments(val_examples)
     
     print(f"Loaded {len(val_queries)} {split} queries")
@@ -105,13 +130,12 @@ def run_pipeline_on_queries(
     Returns:
         List of results with metrics
     """
-    # Select samples if specified
+    # Note: Sample limiting is handled in load_config_and_dataset to ensure
+    # deterministic selection (first N examples) matching exp1_baseline.py
+    # If num_samples is provided here, it's ignored to maintain consistency
     if num_samples and num_samples < len(queries):
-        sample_indices = np.random.choice(len(queries), num_samples, replace=False)
-        queries = [queries[i] for i in sample_indices]
-        ground_truths = [ground_truths[i] for i in sample_indices]
-        relevant_docs = [relevant_docs[i] for i in sample_indices]
-        print(f"Running HALO-RAG on {num_samples} sample queries...\n")
+        print(f"⚠ Warning: num_samples={num_samples} provided, but limit should be set via --limit in load_config_and_dataset for consistency with baseline")
+        print(f"   Processing all {len(queries)} queries from loaded dataset\n")
     else:
         print(f"Running HALO-RAG on {len(queries)} queries...\n")
     
@@ -286,8 +310,10 @@ def main():
                        help="Path to config file")
     parser.add_argument("--split", type=str, default="validation",
                        help="Dataset split to use (train/validation/test)")
-    parser.add_argument("--num-samples", type=int, default=None,
-                       help="Number of samples to process (None = all)")
+    parser.add_argument("--limit", type=int, default=None,
+                       help="Limit number of examples (applied deterministically as first N, matching exp1_baseline.py)")
+    parser.add_argument("--seed", type=int, default=42,
+                       help="Random seed for reproducibility (must match exp1_baseline.py for fair comparison)")
     parser.add_argument("--max-revision-iterations", type=int, default=3,
                        help="Maximum revision iterations")
     parser.add_argument("--disable-revision", action="store_true",
@@ -303,11 +329,27 @@ def main():
     print("HALO-RAG: Complete Pipeline with Fine-Tuned Generator + Revision")
     print("="*80)
     
+    # Set random seed for reproducibility (must match exp1_baseline.py)
+    import random
+    import numpy as np
+    import torch
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    
     # 1. Load configuration and dataset
     print("\n[1/5] Loading configuration and dataset...")
+    print(f"Using seed={args.seed} (must match exp1_baseline.py for fair comparison)")
+    if args.split != "validation":
+        print(f"⚠ WARNING: Using '{args.split}' split. For fair comparison and to avoid data leakage,")
+        print("   use 'validation' split (Exp6 uses 'train' split for fine-tuning).")
+    else:
+        print("✓ Using 'validation' split (correct for evaluation, avoids data leakage with Exp6 training data)")
     config, queries, ground_truths, relevant_docs, corpus = load_config_and_dataset(
         config_path=args.config,
-        split=args.split
+        split=args.split,
+        limit=args.limit,
+        seed=args.seed
     )
     
     # 2. Initialize HALO-RAG pipeline
@@ -327,7 +369,7 @@ def main():
         queries=queries,
         ground_truths=ground_truths,
         relevant_docs=relevant_docs,
-        num_samples=args.num_samples,
+        num_samples=None,  # Limit already applied in load_config_and_dataset for consistency
         verbose=not args.quiet
     )
     
