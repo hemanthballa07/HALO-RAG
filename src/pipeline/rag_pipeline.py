@@ -306,6 +306,9 @@ class SelfVerificationRAGPipeline:
         
         # Compute metrics
         # Use reranked_texts for coverage (top-k documents used for generation)
+        # Get abstention flag from results
+        abstained = results.get("abstained", False)
+        
         metrics = self.evaluator.compute_all_metrics(
             retrieved_docs=results["retrieved_docs"],
             relevant_docs=relevant_doc_ids,
@@ -313,7 +316,8 @@ class SelfVerificationRAGPipeline:
             generated=results["generated_text"],
             ground_truth=ground_truth,
             retrieved_texts=results.get("reranked_texts", results.get("retrieved_texts", [])),
-            ground_truth_claims=ground_truth_claims
+            ground_truth_claims=ground_truth_claims,
+            abstained=abstained  # Pass abstention flag to exclude from hallucination_rate
         )
         
         results["metrics"] = metrics

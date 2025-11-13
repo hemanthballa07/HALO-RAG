@@ -272,17 +272,26 @@ class EvaluationMetrics:
     
     def hallucination_rate(
         self,
-        verification_results: List[Dict[str, any]]
+        verification_results: List[Dict[str, any]],
+        abstained: bool = False
     ) -> float:
         """
         Compute Hallucination Rate: fraction of claims that are not entailed.
         
+        When the system abstains (abstained=True), it means no confident claims were made,
+        so hallucination_rate should be 0.0 (no hallucinations if no claims were made).
+        
         Args:
             verification_results: List of verification results
+            abstained: Whether the system abstained from making a claim
         
         Returns:
-            Hallucination rate
+            Hallucination rate (0.0 if abstained, otherwise fraction of unentailed claims)
         """
+        # If system abstained, no claims were made, so no hallucinations
+        if abstained:
+            return 0.0
+        
         if len(verification_results) == 0:
             return 0.0
         
@@ -555,7 +564,8 @@ class EvaluationMetrics:
         ground_truth: str,
         retrieved_texts: List[str],
         ground_truth_claims: Optional[List[str]] = None,
-        verifier = None
+        verifier = None,
+        abstained: bool = False
     ) -> Dict[str, float]:
         """
         Compute all metrics at once.
@@ -568,6 +578,8 @@ class EvaluationMetrics:
             ground_truth: Ground truth text
             retrieved_texts: List of retrieved document texts (for coverage calculation)
             ground_truth_claims: Optional list of ground truth claims
+            verifier: Optional verifier instance for factual recall calculation
+            abstained: Whether the system abstained from making a claim
         
         Returns:
             Dictionary of all metric scores including:
@@ -598,7 +610,7 @@ class EvaluationMetrics:
             retrieved_texts=retrieved_texts,
             verifier=verifier
         )
-        metrics["hallucination_rate"] = self.hallucination_rate(verification_results)
+        metrics["hallucination_rate"] = self.hallucination_rate(verification_results, abstained=abstained)
         
         # Generation metrics
         metrics["exact_match"] = self.exact_match(generated, ground_truth)

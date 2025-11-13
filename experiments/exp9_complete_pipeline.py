@@ -162,6 +162,9 @@ def run_complete_pipeline_experiment(
                 })
             
             # Compute metrics
+            # Get abstention flag from result
+            abstained = result.get("abstained", False)
+            
             metrics = evaluator.compute_all_metrics(
                 retrieved_docs=result["retrieved_docs"],
                 relevant_docs=rel_docs,
@@ -170,7 +173,8 @@ def run_complete_pipeline_experiment(
                 ground_truth=gt,
                 retrieved_texts=retrieved_texts,
                 ground_truth_claims=ground_truth_claims,
-                verifier=pipeline.verifier  # Pass verifier for factual recall calculation
+                verifier=pipeline.verifier,  # Pass verifier for factual recall calculation
+                abstained=abstained  # Pass abstention flag to exclude from hallucination_rate
             )
             
             all_metrics.append(metrics)
