@@ -131,7 +131,7 @@ def fine_tune_iteration(
     answers = [ex["verified_answer"] for ex in verified_examples]
     
     # Initialize generator (for tokenizer and model setup)
-    device = "cuda"
+    device = "cuda" if torch.cuda.is_available() else "cpu"
     
     # Load previous checkpoint if available (for iterative training)
     generator = FLANT5Generator(
@@ -363,7 +363,7 @@ def run_iterative_training(
     np.random.seed(seed)
     torch.manual_seed(seed)
     
-    device = "cuda"
+    device = "cuda" if torch.cuda.is_available() else "cpu"
     
     # Initialize evaluator
     evaluator = EvaluationMetrics()
