@@ -68,18 +68,32 @@ def run_baseline_experiment(
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Using device: {device}")
     
+    # Disable QLoRA on CPU/MPS (requires CUDA)
+    use_qlora = config.get("generation", {}).get("qlora", {}).get("training_enabled", False)
+    if device != "cuda" and use_qlora:
+        print("⚠ QLoRA requires CUDA. Disabling QLoRA for CPU/MPS inference.")
+        use_qlora = False
+    
     # Initialize pipeline (baseline: no verification, no revision)
     print("Initializing pipeline (baseline: no verification)...")
+    # Get verifier model from config
+    verifier_model = config.get("verification", {}).get("entailment_model", "microsoft/deberta-v3-large")
+    verifier_threshold = config.get("verification", {}).get("threshold", 0.75)
+    
     pipeline = SelfVerificationRAGPipeline(
         corpus=corpus,
         device=device,
         enable_revision=False,  # No revision for baseline
-        use_qlora=config.get("generation", {}).get("qlora", {}).get("training_enabled", False)
+        use_qlora=use_qlora,
+        verifier_model=verifier_model,
+        entailment_threshold=verifier_threshold
     )
     
-    # Disable verification for true baseline
-    # We'll still compute verification metrics but pipeline won't use them
-    pipeline.verifier.threshold = 0.0  # Accept all claims for baseline
+    # For baseline, we still want to compute verification metrics
+    # But we don't filter based on verification (no revision)
+    # Keep threshold at normal value (0.75) to get realistic metrics
+    # The baseline is "no revision", not "no verification"
+    # Verification still runs to compute factual precision/recall metrics
     
     # Initialize evaluator
     evaluator = EvaluationMetrics()
@@ -101,6 +115,36 @@ def run_baseline_experiment(
             # Get retrieved texts for coverage calculation
             retrieved_texts = result.get("reranked_texts", result.get("retrieved_texts", []))
             
+            # Extract claims from ground truth for factual recall calculation
+            ground_truth_claims = pipeline.claim_extractor.extract_claims(gt)
+            
+            # Extract claims from generated text (already extracted in pipeline, but get them)
+            generated_claims = result.get("claims", [])
+            if not generated_claims:
+                # Fallback: extract claims if not in result
+                generated_claims = pipeline.claim_extractor.extract_claims(result["generated_text"])
+            
+            # Format claims for MNLI model (as they are passed to the entailment verifier)
+            combined_context = result.get("context", "")
+            formatted_generated_claims = []
+            formatted_ground_truth_claims = []
+            
+            # Format generated claims
+            for claim in generated_claims:
+                formatted_claim = pipeline.verifier._format_claim_for_verification(claim, combined_context)
+                formatted_generated_claims.append({
+                    "original_claim": claim,
+                    "formatted_claim": formatted_claim
+                })
+            
+            # Format ground truth claims
+            for claim in ground_truth_claims:
+                formatted_claim = pipeline.verifier._format_claim_for_verification(claim, combined_context)
+                formatted_ground_truth_claims.append({
+                    "original_claim": claim,
+                    "formatted_claim": formatted_claim
+                })
+            
             # Compute metrics
             metrics = evaluator.compute_all_metrics(
                 retrieved_docs=result["retrieved_docs"],
@@ -108,7 +152,9 @@ def run_baseline_experiment(
                 verification_results=result["verification_results"]["verification_results"],
                 generated=result["generated_text"],
                 ground_truth=gt,
-                retrieved_texts=retrieved_texts
+                retrieved_texts=retrieved_texts,
+                ground_truth_claims=ground_truth_claims,
+                verifier=pipeline.verifier  # Pass verifier for factual recall calculation
             )
             
             all_metrics.append(metrics)
@@ -116,6 +162,13 @@ def run_baseline_experiment(
                 "query": query,
                 "ground_truth": gt,
                 "generated": result["generated_text"],
+                "retrieved_texts": result.get("retrieved_texts", []),
+                "reranked_texts": result.get("reranked_texts", []),
+                "context": result.get("context", ""),
+                "generated_claims": generated_claims,
+                "ground_truth_claims": ground_truth_claims,
+                "formatted_generated_claims": formatted_generated_claims,
+                "formatted_ground_truth_claims": formatted_ground_truth_claims,
                 "metrics": metrics
             })
             
@@ -128,29 +181,41 @@ def run_baseline_experiment(
                 log_metrics(avg_metrics, step=idx + 1, prefix="baseline/")
         
         except Exception as e:
+            import traceback
             print(f"Error processing query {idx}: {e}")
+            print(f"Query: {query[:100]}...")
+            traceback.print_exc()
             continue
     
     # Aggregate metrics
     print("\nAggregating metrics...")
     metric_names = [
-        "recall@20", "coverage", "factual_precision", 
+        "recall@20", "coverage", "factual_precision", "factual_recall",
         "hallucination_rate", "verified_f1", "f1_score",
         "exact_match", "bleu4", "rouge_l", "abstention_rate",
         "fever_score"
     ]
     
     aggregated = {}
+    if not all_metrics:
+        print("⚠ Warning: No metrics collected. Check query processing errors above.")
+        return {
+            "results": results,
+            "aggregated_metrics": {},
+            "num_processed": len(results),
+            "num_errors": len(queries) - len(results)
+        }
+    
     for metric_name in metric_names:
-        if metric_name in all_metrics[0]:
+        if all_metrics and metric_name in all_metrics[0]:
             scores = [m[metric_name] for m in all_metrics if metric_name in m]
             if scores:
-        aggregated[metric_name] = {
+                aggregated[metric_name] = {
                     "mean": float(np.mean(scores)),
                     "std": float(np.std(scores)),
                     "min": float(np.min(scores)),
                     "max": float(np.max(scores)),
-            "scores": scores
+                    "scores": scores
                 }
     
     # Log final metrics to W&B

@@ -5,6 +5,7 @@ Uses DeBERTa-v3-large fine-tuned on MNLI + FEVER
 
 import torch
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
+from transformers.models.deberta_v2 import DebertaV2Tokenizer
 from typing import List, Dict, Tuple, Optional
 import numpy as np
 
@@ -20,7 +21,8 @@ class EntailmentVerifier:
         model_name: str = "microsoft/deberta-v3-large",
         device: str = "cuda",
         threshold: float = 0.75,
-        max_length: int = 512
+        max_length: int = 512,
+        use_mnli_model: bool = True
     ):
         """
         Initialize entailment verifier.
@@ -35,12 +37,72 @@ class EntailmentVerifier:
         self.threshold = threshold
         self.max_length = max_length
         
-        # Load model and tokenizer
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.model = AutoModelForSequenceClassification.from_pretrained(
-            model_name,
-            num_labels=3  # entailment, neutral, contradiction
-        )
+        # Load model for sequence classification (MNLI task)
+        # microsoft/deberta-v3-large doesn't have a public MNLI checkpoint
+        # Use cross-encoder/nli-deberta-v3-base which is properly fine-tuned on NLI tasks
+        actual_model_name = model_name
+        if use_mnli_model:
+            # Try to use a properly fine-tuned NLI model
+            mnli_models = [
+                "cross-encoder/nli-deberta-v3-base",  # Properly fine-tuned on NLI tasks
+            ]
+            
+            model_loaded = False
+            for mnli_model in mnli_models:
+                try:
+                    self.model = AutoModelForSequenceClassification.from_pretrained(mnli_model)
+                    actual_model_name = mnli_model
+                    if mnli_model != model_name:
+                        print(f"✓ Using NLI fine-tuned model: {mnli_model} (instead of {model_name})")
+                    else:
+                        print(f"✓ Using NLI fine-tuned model: {model_name}")
+                    model_loaded = True
+                    break
+                except Exception as e:
+                    continue
+            
+            if not model_loaded:
+                # Fallback: use base model but warn that it's not fine-tuned
+                self.model = AutoModelForSequenceClassification.from_pretrained(
+                    model_name,
+                    num_labels=3,
+                    ignore_mismatched_sizes=True
+                )
+                print(f"⚠ Warning: Could not load NLI fine-tuned model. Using {model_name} with random classifier head.")
+                print(f"⚠ Verification scores will be unreliable. For accurate results, ensure cross-encoder/nli-deberta-v3-base is available.")
+        else:
+            self.model = AutoModelForSequenceClassification.from_pretrained(
+                model_name,
+                num_labels=3,
+                ignore_mismatched_sizes=True
+            )
+        
+        # Load tokenizer matching the actual model
+        # Use slow tokenizer for DeBERTa on CPU (fast tokenizer has tiktoken issues)
+        if device != "cuda":
+            print("⚠ Using slow tokenizer for CPU/MPS compatibility")
+            try:
+                self.tokenizer = AutoTokenizer.from_pretrained(actual_model_name, use_fast=False)
+            except Exception as e:
+                print(f"⚠ AutoTokenizer failed: {e}. Trying DebertaV2Tokenizer")
+                try:
+                    self.tokenizer = DebertaV2Tokenizer.from_pretrained(actual_model_name)
+                except Exception as e2:
+                    import os
+                    os.environ["TOKENIZERS_PARALLELISM"] = "false"
+                    self.tokenizer = AutoTokenizer.from_pretrained(
+                        actual_model_name,
+                        use_fast=False,
+                        local_files_only=False
+                    )
+        else:
+            # On CUDA, try fast tokenizer first
+            try:
+                self.tokenizer = AutoTokenizer.from_pretrained(actual_model_name, use_fast=True)
+            except Exception as e:
+                print(f"⚠ Fast tokenizer failed, using slow tokenizer: {e}")
+                self.tokenizer = AutoTokenizer.from_pretrained(actual_model_name, use_fast=False)
+        
         self.model.to(device)
         self.model.eval()
         
@@ -56,17 +118,49 @@ class EntailmentVerifier:
         Verify a single claim against context.
         
         Args:
-            claim: Claim to verify
-            context: Context to verify against
+            claim: Claim to verify (hypothesis)
+            context: Context to verify against (premise)
         
         Returns:
             Dictionary with 'entailment', 'neutral', 'contradiction' scores
         """
-        # Format as premise-hypothesis pair
-        # For MNLI: premise=context, hypothesis=claim
+        # Format claim as a complete sentence if it's not already
+        # Short answers like "2003" or "June 2005" need to be converted to full claims
+        formatted_claim = self._format_claim_for_verification(claim, context)
+        
+        # Check if the claim appears directly in the context (exact or near-exact match)
+        # This handles cases where the claim is a direct quote or close variant
+        import re
+        claim_normalized = re.sub(r'[^\w\s]', '', formatted_claim.lower())
+        context_normalized = re.sub(r'[^\w\s]', '', context.lower())
+        
+        # If the formatted claim is a substring of the context, it's likely entailed
+        # Check if all significant words from the claim appear in the context
+        claim_words = set(claim_normalized.split())
+        context_words = set(context_normalized.split())
+        
+        # Remove common stop words for matching
+        stop_words = {'the', 'a', 'an', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'this', 'that', 'is', 'was', 'are', 'were'}
+        claim_words_clean = claim_words - stop_words
+        context_words_clean = context_words - stop_words
+        
+        # If most claim words appear in context and the claim is short, likely entailed
+        if len(claim_words_clean) > 0:
+            overlap_ratio = len(claim_words_clean & context_words_clean) / len(claim_words_clean)
+            # If high overlap and claim appears as substring, mark as entailed
+            if overlap_ratio >= 0.8 and claim_normalized in context_normalized:
+                return {
+                    "contradiction": 0.0,
+                    "neutral": 0.0,
+                    "entailment": 1.0
+                }
+        
+        # Format as premise-hypothesis pair for NLI
+        # Premise = context (what we know)
+        # Hypothesis = formatted claim (what we want to verify)
         inputs = self.tokenizer(
             context,
-            claim,
+            formatted_claim,
             max_length=self.max_length,
             padding=True,
             truncation=True,
@@ -87,6 +181,27 @@ class EntailmentVerifier:
             "neutral": float(probs[1]),
             "entailment": float(probs[2])
         }
+    
+    def _format_claim_for_verification(self, claim: str, context: str) -> str:
+        """
+        Format a claim into a complete sentence for better verification.
+        
+        For short answers like dates or names, create a more explicit claim
+        that can be properly verified against the context.
+        """
+        claim = claim.strip()
+        
+        # If claim is already a complete sentence, return as-is
+        if claim.endswith('.') or claim.endswith('!') or claim.endswith('?'):
+            return claim
+        
+        # For short claims, make them more explicit
+        if len(claim.split()) <= 5:
+            # Simple formatting: wrap in a natural sentence
+            return f"The answer is {claim}."
+        
+        # Default: return as-is
+        return claim
     
     def verify_claims(
         self,
