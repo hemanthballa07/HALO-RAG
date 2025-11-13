@@ -278,7 +278,7 @@ def run_tau_sweep_stress_test(
     np.random.seed(seed)
     torch.manual_seed(seed)
     
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = "cuda"
     print(f"Using device: {device}")
     
     if limit:
@@ -369,7 +369,7 @@ def run_retrieval_degradation_test(
     np.random.seed(seed)
     torch.manual_seed(seed)
     
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = "cuda"
     print(f"Using device: {device}")
     
     if limit:
@@ -461,7 +461,7 @@ def run_verifier_off_test(
     np.random.seed(seed)
     torch.manual_seed(seed)
     
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = "cuda"
     print(f"Using device: {device}")
     
     if limit:
@@ -545,7 +545,7 @@ def run_baseline_test(
     np.random.seed(seed)
     torch.manual_seed(seed)
     
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = "cuda"
     print(f"Using device: {device}")
     
     if limit:

@@ -49,31 +49,21 @@ class FLANT5Generator:
         self.use_qlora = use_qlora
         
         # Configure quantization if using QLoRA
-        # QLoRA requires CUDA - disable on CPU/MPS
-        if use_qlora and device == "cuda":
-            try:
-                quantization_config = BitsAndBytesConfig(
-                    load_in_4bit=True,
-                    bnb_4bit_quant_type=bit_type,
-                    bnb_4bit_compute_dtype=torch.float16,
-                    bnb_4bit_use_double_quant=True
-                )
-            except Exception as e:
-                print(f"⚠ Warning: QLoRA initialization failed: {e}. Falling back to full precision.")
-                use_qlora = False
-                quantization_config = None
-        else:
-            if use_qlora and device != "cuda":
-                print(f"⚠ QLoRA requires CUDA but device is {device}. Disabling QLoRA.")
-            use_qlora = False
-            quantization_config = None
+        quantization_config = None
+        if use_qlora:
+            quantization_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_quant_type=bit_type,
+                bnb_4bit_compute_dtype=torch.float16,
+                bnb_4bit_use_double_quant=True
+            )
         
         # Load tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         
         # Load base model
         if use_qlora and quantization_config is not None:
-            # QLoRA path (CUDA only)
+            # QLoRA path
             self.model = AutoModelForSeq2SeqLM.from_pretrained(
                 model_name,
                 quantization_config=quantization_config,
@@ -81,7 +71,7 @@ class FLANT5Generator:
                 torch_dtype=torch.float16
             )
         else:
-            # Full precision path (CPU/MPS or no QLoRA)
+            # Full precision path
             self.model = AutoModelForSeq2SeqLM.from_pretrained(
                 model_name
             )

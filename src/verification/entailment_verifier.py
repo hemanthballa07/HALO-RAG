@@ -1,11 +1,10 @@
 """
 Entailment-based Factual Verification Module
-Uses DeBERTa-v3-large fine-tuned on MNLI + FEVER
+Uses cross-encoder/nli-deberta-v3-base fine-tuned on NLI tasks
 """
 
 import torch
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
-from transformers.models.deberta_v2 import DebertaV2Tokenizer
 from typing import List, Dict, Tuple, Optional
 import numpy as np
 
@@ -13,22 +12,21 @@ import numpy as np
 class EntailmentVerifier:
     """
     Entailment-based verifier for factual claims.
-    Uses DeBERTa-v3-large trained on MNLI + FEVER.
+    Uses cross-encoder/nli-deberta-v3-base fine-tuned on NLI tasks.
     """
     
     def __init__(
         self,
-        model_name: str = "microsoft/deberta-v3-large",
+        model_name: str = "cross-encoder/nli-deberta-v3-base",
         device: str = "cuda",
         threshold: float = 0.75,
-        max_length: int = 512,
-        use_mnli_model: bool = True
+        max_length: int = 512
     ):
         """
         Initialize entailment verifier.
         
         Args:
-            model_name: DeBERTa model name
+            model_name: NLI model name (default: cross-encoder/nli-deberta-v3-base)
             device: Device to run model on
             threshold: Entailment threshold (τ)
             max_length: Maximum sequence length
@@ -37,71 +35,9 @@ class EntailmentVerifier:
         self.threshold = threshold
         self.max_length = max_length
         
-        # Load model for sequence classification (MNLI task)
-        # microsoft/deberta-v3-large doesn't have a public MNLI checkpoint
-        # Use cross-encoder/nli-deberta-v3-base which is properly fine-tuned on NLI tasks
-        actual_model_name = model_name
-        if use_mnli_model:
-            # Try to use a properly fine-tuned NLI model
-            mnli_models = [
-                "cross-encoder/nli-deberta-v3-base",  # Properly fine-tuned on NLI tasks
-            ]
-            
-            model_loaded = False
-            for mnli_model in mnli_models:
-                try:
-                    self.model = AutoModelForSequenceClassification.from_pretrained(mnli_model)
-                    actual_model_name = mnli_model
-                    if mnli_model != model_name:
-                        print(f"✓ Using NLI fine-tuned model: {mnli_model} (instead of {model_name})")
-                    else:
-                        print(f"✓ Using NLI fine-tuned model: {model_name}")
-                    model_loaded = True
-                    break
-                except Exception as e:
-                    continue
-            
-            if not model_loaded:
-                # Fallback: use base model but warn that it's not fine-tuned
-                self.model = AutoModelForSequenceClassification.from_pretrained(
-                    model_name,
-                    num_labels=3,
-                    ignore_mismatched_sizes=True
-                )
-                print(f"⚠ Warning: Could not load NLI fine-tuned model. Using {model_name} with random classifier head.")
-                print(f"⚠ Verification scores will be unreliable. For accurate results, ensure cross-encoder/nli-deberta-v3-base is available.")
-        else:
-            self.model = AutoModelForSequenceClassification.from_pretrained(
-                model_name,
-                num_labels=3,
-                ignore_mismatched_sizes=True
-            )
-        
-        # Load tokenizer matching the actual model
-        # Use slow tokenizer for DeBERTa on CPU (fast tokenizer has tiktoken issues)
-        if device != "cuda":
-            print("⚠ Using slow tokenizer for CPU/MPS compatibility")
-            try:
-                self.tokenizer = AutoTokenizer.from_pretrained(actual_model_name, use_fast=False)
-            except Exception as e:
-                print(f"⚠ AutoTokenizer failed: {e}. Trying DebertaV2Tokenizer")
-                try:
-                    self.tokenizer = DebertaV2Tokenizer.from_pretrained(actual_model_name)
-                except Exception as e2:
-                    import os
-                    os.environ["TOKENIZERS_PARALLELISM"] = "false"
-                    self.tokenizer = AutoTokenizer.from_pretrained(
-                        actual_model_name,
-                        use_fast=False,
-                        local_files_only=False
-                    )
-        else:
-            # On CUDA, try fast tokenizer first
-            try:
-                self.tokenizer = AutoTokenizer.from_pretrained(actual_model_name, use_fast=True)
-            except Exception as e:
-                print(f"⚠ Fast tokenizer failed, using slow tokenizer: {e}")
-                self.tokenizer = AutoTokenizer.from_pretrained(actual_model_name, use_fast=False)
+        # Load NLI model for sequence classification
+        self.model = AutoModelForSequenceClassification.from_pretrained(model_name)
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
         
         self.model.to(device)
         self.model.eval()

@@ -65,19 +65,15 @@ def run_baseline_experiment(
     np.random.seed(seed)
     torch.manual_seed(seed)
     
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = "cuda"
     print(f"Using device: {device}")
     
-    # Disable QLoRA on CPU/MPS (requires CUDA)
     use_qlora = config.get("generation", {}).get("qlora", {}).get("training_enabled", False)
-    if device != "cuda" and use_qlora:
-        print("⚠ QLoRA requires CUDA. Disabling QLoRA for CPU/MPS inference.")
-        use_qlora = False
     
     # Initialize pipeline (baseline: no verification, no revision)
     print("Initializing pipeline (baseline: no verification)...")
     # Get verifier model from config
-    verifier_model = config.get("verification", {}).get("entailment_model", "microsoft/deberta-v3-large")
+    verifier_model = config.get("verification", {}).get("entailment_model", "cross-encoder/nli-deberta-v3-base")
     verifier_threshold = config.get("verification", {}).get("threshold", 0.75)
     
     pipeline = SelfVerificationRAGPipeline(

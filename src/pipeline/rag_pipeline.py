@@ -34,7 +34,7 @@ class SelfVerificationRAGPipeline:
         retrieval_model: str = "sentence-transformers/all-mpnet-base-v2",
         reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2",
         generator_model: str = "google/flan-t5-large",
-        verifier_model: str = "microsoft/deberta-v3-large",
+        verifier_model: str = "cross-encoder/nli-deberta-v3-base",
         entailment_threshold: float = 0.75,
         dense_weight: float = 0.6,
         sparse_weight: float = 0.4,
@@ -94,12 +94,10 @@ class SelfVerificationRAGPipeline:
         
         # Initialize verifier
         logger.info("Initializing entailment verifier...")
-        # Use MNLI fine-tuned model if available for better accuracy
         self.verifier = EntailmentVerifier(
             model_name=verifier_model,
             device=device,
-            threshold=entailment_threshold,
-            use_mnli_model=True  # Try to use MNLI fine-tuned model
+            threshold=entailment_threshold
         )
         
         # Initialize claim extractor

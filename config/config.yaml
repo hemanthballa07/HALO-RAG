@@ -2,16 +2,16 @@
 
 # Dataset Configuration
 datasets:
-  active: "squad_v2"  # or "natural_questions", "hotpotqa"
-  sample_limit: null  # Limit number of examples (null = no limit, set to int for testing)
+  active: "squad_v2" # or "natural_questions", "hotpotqa"
+  sample_limit: null # Limit number of examples (null = no limit, set to int for testing)
   splits:
     train: "train"
     validation: "validation"
     test: "test"
-  
+
   # Dataset-specific settings
   squad_v2:
-    cache_dir: null  # Use default cache if null
+    cache_dir: null # Use default cache if null
   natural_questions:
     cache_dir: null
   hotpotqa:
@@ -19,7 +19,7 @@ datasets:
 
 # Legacy dataset config (for backward compatibility)
 dataset:
-  name: "natural_questions"  # or "squad", "trivia_qa"
+  name: "natural_questions" # or "squad", "trivia_qa"
   train_split: 0.8
   val_split: 0.1
   test_split: 0.1
@@ -34,17 +34,17 @@ retrieval:
     top_k: 20
     index_type: "faiss"
     similarity_metric: "cosine"
-  
+
   sparse:
     method: "bm25"
     k1: 1.5
     b: 0.75
-  
+
   fusion:
     dense_weight: 0.6
     sparse_weight: 0.4
     top_k: 20
-  
+
   reranker:
     model_name: "cross-encoder/ms-marco-MiniLM-L-6-v2"
     top_k: 5
@@ -58,7 +58,7 @@ generation:
   top_p: 0.95
   top_k: 50
   do_sample: true
-  
+
   # QLoRA Configuration
   qlora:
     r: 16
@@ -71,15 +71,13 @@ generation:
 
 # Verification Configuration
 verification:
-  entailment_model: "microsoft/deberta-v3-large"
-  mnli_checkpoint: "microsoft/deberta-v3-large"
-  fever_checkpoint: "microsoft/deberta-v3-large"
-  threshold: 0.75  # τ (tau) - optimal threshold for MNLI fine-tuned models
-  accept_min: 0.85  # Minimum factual precision for verified data collection (Exp6)
+  entailment_model: "cross-encoder/nli-deberta-v3-base" # NLI fine-tuned model
+  threshold: 0.75 # τ (tau) - optimal threshold for MNLI fine-tuned models
+  accept_min: 0.85 # Minimum factual precision for verified data collection (Exp6)
   claim_extraction:
     method: "spacy_svo"
     model: "en_core_web_sm"
-  
+
   # Threshold sweep for Experiment 3
   threshold_sweep: [0.5, 0.6, 0.7, 0.75, 0.8, 0.85, 0.9]
 
@@ -90,11 +88,11 @@ revision:
     - "re_retrieval"
     - "constrained_generation"
     - "claim_by_claim"
-  
+
   re_retrieval:
     expansion_factor: 1.5
     query_rewrite: true
-  
+
   constrained_generation:
     max_tries: 3
     verify_claims: true
@@ -118,14 +116,14 @@ evaluation:
     - "rouge_l"
     - "fever_score"
     - "abstention_rate"
-  
+
   targets:
     recall_at_20: 0.95
     coverage: 0.90
     factual_precision: 0.90
     verified_f1: 0.52
     hallucination_rate: 0.10
-  
+
   statistical_testing:
     method: "t_test"
     alpha: 0.05
@@ -147,29 +145,28 @@ training:
 # Experiment Configuration
 experiments:
   random_seed: 42
-  num_runs: 3  # For statistical significance
-  device: "cuda"  # Use "cuda" for GPU, "cpu" for CPU
+  num_runs: 3 # For statistical significance
+  device: "cuda" # Use "cuda" for GPU, "cpu" for CPU
   mixed_precision: true
-  
+
   # Experiment 5: Self-Consistency Decoding
   exp5:
-    k: 5  # Number of samples for self-consistency
-    temperature: 0.7  # Sampling temperature
-    factual_precision_threshold: 0.9  # Minimum factual precision to keep answer
-    aggregation_method: "highest_verified_f1"  # "majority_vote" or "highest_verified_f1"
-  
+    k: 5 # Number of samples for self-consistency
+    temperature: 0.7 # Sampling temperature
+    factual_precision_threshold: 0.9 # Minimum factual precision to keep answer
+    aggregation_method: "highest_verified_f1" # "majority_vote" or "highest_verified_f1"
+
   # Experiment 6: Iterative Fine-Tuning
   exp6:
-    iterations: 3  # Number of fine-tuning iterations
-    train_limit: null  # Limit training examples (null = no limit, set for smoke tests)
-    top_k_passages: 5  # Number of top passages to include in training triples
+    iterations: 3 # Number of fine-tuning iterations
+    train_limit: null # Limit training examples (null = no limit, set for smoke tests)
+    top_k_passages: 5 # Number of top passages to include in training triples
 
 # Paths
 paths:
   data_dir: "./data"
-  cache_dir: "~/.cache/huggingface/datasets/"  # Cache directory for datasets
+  cache_dir: "~/.cache/huggingface/datasets/" # Cache directory for datasets
   model_cache: "./models"
   results_dir: "./results"
   checkpoint_dir: "./checkpoints"
   log_dir: "./logs"
-
