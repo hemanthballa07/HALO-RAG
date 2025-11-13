@@ -262,6 +262,10 @@ def main():
     # Parse arguments
     args = parse_experiment_args(description="Experiment 1: Baseline Comparison")
     
+    # Respect --no-wandb flag
+    if args.no_wandb:
+        os.environ["WANDB_DISABLED"] = "true"
+    
     # Load config
     config = load_config(args.config)
     

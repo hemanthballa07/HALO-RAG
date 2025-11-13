@@ -242,6 +242,8 @@ def fine_tune_iteration(
     if isinstance(learning_rate, str):
         learning_rate = float(learning_rate)
     
+    wandb_enabled = os.environ.get("WANDB_DISABLED") != "true" and bool(os.getenv("WANDB_API_KEY"))
+    
     training_args = TrainingArguments(
         output_dir=checkpoint_path,
         num_train_epochs=int(training_config.get("num_epochs", 3)),
@@ -253,7 +255,7 @@ def fine_tune_iteration(
         save_strategy="epoch",
         save_total_limit=3,
         fp16=True,
-        report_to="wandb" if os.getenv("WANDB_API_KEY") else None,
+        report_to="wandb" if wandb_enabled else "none",
         run_name=f"exp6_iter{iteration}"
     )
     
@@ -686,6 +688,10 @@ def main():
     parser.add_argument("--no-wandb", action="store_true", help="Disable W&B logging")
     
     args = parser.parse_args()
+    
+    # Respect --no-wandb flag
+    if args.no_wandb:
+        os.environ["WANDB_DISABLED"] = "true"
     
     # Load config
     config = load_config(args.config)

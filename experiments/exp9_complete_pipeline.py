@@ -301,6 +301,10 @@ def main():
     
     args = parser.parse_args()
     
+    # Respect --no-wandb flag
+    if args.no_wandb:
+        os.environ["WANDB_DISABLED"] = "true"
+    
     # Load config
     config = load_config(args.config)
     
