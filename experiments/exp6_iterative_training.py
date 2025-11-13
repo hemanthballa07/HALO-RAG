@@ -666,13 +666,18 @@ def main():
     if iterations is None:
         iterations = config.get("experiments", {}).get("exp6", {}).get("iterations", 3)
     
-    # Determine sample limit
-    sample_limit = args.limit
+    # Determine training limit (only for training split)
+    train_limit = args.limit  # --limit applies to training
     if args.dry_run:
-        sample_limit = 100
-        print("⚠ DRY RUN MODE: Using 100 samples")
-    elif sample_limit is None:
-        sample_limit = config.get("experiments", {}).get("exp6", {}).get("train_limit")
+        train_limit = 100
+        print("⚠ DRY RUN MODE: Using 100 training samples")
+    elif train_limit is None:
+        # Read train_limit from exp6 config (not datasets.sample_limit)
+        train_limit = config.get("experiments", {}).get("exp6", {}).get("train_limit")
+    
+    # Determine validation limit (separate from training limit)
+    # Use datasets.sample_limit for validation, or no limit if not specified
+    val_limit = config.get("datasets", {}).get("sample_limit")
     
     # Load datasets
     print("Loading datasets...")
@@ -692,11 +697,17 @@ def main():
         else:
             print("✓ Verified: Train and validation splits have no overlapping examples (checked first 100)")
     
-    # Apply sample limit if specified
-    if sample_limit:
-        train_examples = train_examples[:sample_limit]
-        val_examples = val_examples[:min(sample_limit, len(val_examples))]
-        print(f"Limited to {len(train_examples)} train and {len(val_examples)} val examples")
+    # Apply training limit (only to training split)
+    if train_limit:
+        train_examples = train_examples[:train_limit]
+        print(f"Limited training to {len(train_examples)} examples (from exp6.train_limit config)")
+    
+    # Apply validation limit (only to validation split, if specified)
+    if val_limit:
+        val_examples = val_examples[:val_limit]
+        print(f"Limited validation to {len(val_examples)} examples (from datasets.sample_limit config)")
+    else:
+        print(f"Using full validation set: {len(val_examples)} examples")
             
     # Prepare for experiments
     train_queries, train_ground_truths, train_relevant_docs, corpus = prepare_for_experiments(train_examples)
@@ -722,7 +733,8 @@ def main():
                 "experiment": "exp6_iterative_training",
                 "dataset": dataset_name,
                 "iterations": iterations,
-                "sample_limit": sample_limit,
+                "train_limit": train_limit,
+                "val_limit": val_limit,
                 "seed": seed
             },
             enabled=True
@@ -732,7 +744,7 @@ def main():
         log_metadata(
             dataset_name=dataset_name,
             split="train+validation",
-            sample_limit=sample_limit,
+            sample_limit=train_limit,  # Log training limit
             commit_hash=commit_hash,
             timestamp=timestamp
             )
@@ -756,7 +768,8 @@ def main():
     results["metadata"] = {
         "dataset": dataset_name,
         "iterations": iterations,
-        "sample_limit": sample_limit,
+        "train_limit": train_limit,
+        "val_limit": val_limit,
         "seed": seed,
         "commit_hash": commit_hash,
         "timestamp": timestamp
