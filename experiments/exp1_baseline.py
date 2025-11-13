@@ -165,6 +165,8 @@ def run_baseline_experiment(
                 "ground_truth_claims": ground_truth_claims,
                 "formatted_generated_claims": formatted_generated_claims,
                 "formatted_ground_truth_claims": formatted_ground_truth_claims,
+                "verification_results": result.get("verification_results", {}),  # Add full verification results
+                "verified": result.get("verification_results", {}).get("verified", False),
                 "metrics": metrics
             })
             

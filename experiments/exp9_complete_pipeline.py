@@ -161,23 +161,57 @@ def run_pipeline_on_queries(
             verification_results = result["verification_results"]
             revision_iterations = result.get("revision_iterations", 0)
             verified = verification_results.get("verified", False)
+            combined_context = result.get("context", "")
             
-            # Compute metrics
+            # Extract claims for transparency (matching exp1_baseline)
+            ground_truth_claims = pipeline.claim_extractor.extract_claims(gt)
+            generated_claims = result.get("claims", [])
+            if not generated_claims:
+                generated_claims = pipeline.claim_extractor.extract_claims(generated_text)
+            
+            # Format claims for MNLI model (as they are passed to the entailment verifier)
+            formatted_generated_claims = []
+            formatted_ground_truth_claims = []
+            
+            for claim in generated_claims:
+                formatted_claim = pipeline.verifier._format_claim_for_verification(claim, combined_context)
+                formatted_generated_claims.append({
+                    "original_claim": claim,
+                    "formatted_claim": formatted_claim
+                })
+            
+            for claim in ground_truth_claims:
+                formatted_claim = pipeline.verifier._format_claim_for_verification(claim, combined_context)
+                formatted_ground_truth_claims.append({
+                    "original_claim": claim,
+                    "formatted_claim": formatted_claim
+                })
+            
+            # Compute metrics (with ground_truth_claims for factual recall)
             metrics = evaluator.compute_all_metrics(
                 retrieved_docs=result["retrieved_docs"],
                 relevant_docs=rel_docs,
                 verification_results=verification_results["verification_results"],
                 generated=generated_text,
                 ground_truth=gt,
-                retrieved_texts=retrieved_texts
+                retrieved_texts=retrieved_texts,
+                ground_truth_claims=ground_truth_claims,
+                verifier=pipeline.verifier  # Pass verifier for factual recall calculation
             )
             
             results.append({
                 "query": query,
                 "ground_truth": gt,
                 "generated": generated_text,
+                "retrieved_texts": result.get("retrieved_texts", []),
+                "reranked_texts": retrieved_texts,
+                "context": combined_context,
+                "generated_claims": generated_claims,
+                "ground_truth_claims": ground_truth_claims,
+                "formatted_generated_claims": formatted_generated_claims,
+                "formatted_ground_truth_claims": formatted_ground_truth_claims,
                 "verified": verified,
-                "revision_iterations": revision_iterations,
+                "revision_iterations": revision_iterations,  # Only in exp9
                 "metrics": metrics,
                 "verification_results": verification_results
             })
@@ -203,20 +237,17 @@ def run_pipeline_on_queries(
 
 
 def aggregate_results(results: List[Dict]) -> Dict:
-    """Aggregate metrics across all results."""
+    """Aggregate metrics across all results (matching exp1_baseline format)."""
     metric_names = [
-        "hallucination_rate",
-        "factual_precision",
-        "factual_recall",
-        "verified_f1",
-        "f1_score",
-        "exact_match",
-        "abstention_rate"
+        "recall@20", "coverage", "factual_precision", "factual_recall",
+        "hallucination_rate", "verified_f1", "f1_score",
+        "exact_match", "bleu4", "rouge_l", "abstention_rate",
+        "fever_score"
     ]
     
     aggregated = {}
     for metric_name in metric_names:
-        scores = [r["metrics"].get(metric_name, 0.0) for r in results]
+        scores = [r["metrics"].get(metric_name, 0.0) for r in results if "metrics" in r]
         if scores:
             aggregated[metric_name] = {
                 "mean": float(np.mean(scores)),
@@ -282,23 +313,40 @@ def print_detailed_example(results: List[Dict]):
 
 
 def save_results(results: List[Dict], aggregated: Dict, output_path: str = "results/halo_rag_complete_pipeline.json"):
-    """Save results to JSON file."""
+    """Save results to JSON and CSV files (matching exp1_baseline format)."""
+    import csv
+    
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     
+    # Save JSON (matching exp1_baseline structure)
     output = {
         "aggregated_metrics": aggregated,
         "individual_results": results,
         "summary": {
             "total_queries": len(results),
             "verified_count": sum(1 for r in results if r["verified"]),
-            "avg_revision_iterations": float(np.mean([r["revision_iterations"] for r in results]))
+            "avg_revision_iterations": float(np.mean([r.get("revision_iterations", 0) for r in results]))
         }
     }
     
     with open(output_path, 'w') as f:
         json.dump(output, f, indent=2)
+    print(f"✓ Saved results to {output_path}")
     
-    print(f"\n✓ Results saved to {output_path}")
+    # Save CSV (matching exp1_baseline format)
+    csv_path = output_path.replace(".json", ".csv")
+    with open(csv_path, 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(["metric", "mean", "std", "min", "max"])
+        for metric_name, stats in aggregated.items():
+            writer.writerow([
+                metric_name,
+                f"{stats['mean']:.4f}",
+                f"{stats['std']:.4f}",
+                f"{stats['min']:.4f}",
+                f"{stats['max']:.4f}"
+            ])
+    print(f"✓ Saved metrics to {csv_path}")
 
 
 def main():
