@@ -51,18 +51,26 @@ class AdaptiveRevisionStrategy:
         generation_fn,
         verification_fn,
         claim_extractor_fn,
-        iteration: int = 0
+        iteration: int = 0,
+        top_k_retrieve: int = 20
     ) -> Tuple[str, Dict[str, Any], Dict[str, Any]]:
         """
         Apply adaptive revision strategies.
         
+        IMPORTANT: This method does NOT use ground truth. All revision decisions are based solely on:
+        - Verification results (entailment checking against retrieved contexts)
+        - The generated text and extracted claims
+        - Retrieved document contexts
+        
+        This makes the system deployable in production where ground truth is not available.
+        
         Args:
             query: Original query
             initial_generation: Initial generated text
-            verification_results: Verification results from first pass
+            verification_results: Verification results from first pass (based on entailment, not ground truth)
             retrieval_fn: Function to retrieve documents
             generation_fn: Function to generate text
-            verification_fn: Function to verify claims
+            verification_fn: Function to verify claims (checks entailment against contexts)
             claim_extractor_fn: Function to extract claims from text
             iteration: Current iteration number
         
@@ -90,7 +98,8 @@ class AdaptiveRevisionStrategy:
                 generation_fn,
                 verification_fn,
                 claim_extractor_fn,
-                iteration
+                iteration,
+                top_k_retrieve
             )
         elif strategy == RevisionStrategy.CONSTRAINED_GENERATION:
             return self._constrained_generation_strategy(
@@ -148,7 +157,8 @@ class AdaptiveRevisionStrategy:
         generation_fn,
         verification_fn,
         claim_extractor_fn,
-        iteration: int
+        iteration: int,
+        top_k_retrieve: int = 20
     ) -> Tuple[str, Dict[str, Any], Dict[str, Any]]:
         """
         Re-retrieval strategy: expand query and retrieve more documents.
@@ -164,8 +174,8 @@ class AdaptiveRevisionStrategy:
         else:
             expanded_query = query
         
-        # Re-retrieve with expanded query
-        new_contexts = retrieval_fn(expanded_query, top_k=20)
+        # Re-retrieve with expanded query (use same top_k as baseline)
+        new_contexts = retrieval_fn(expanded_query, top_k=top_k_retrieve)
         
         # Re-generate with new contexts
         context_text = " ".join([ctx[1] for ctx in new_contexts])
@@ -184,13 +194,17 @@ class AdaptiveRevisionStrategy:
             revised_claims
         )
         
-        # Strategy metadata
+        # Strategy metadata with detailed context information
         strategy_metadata = {
             "strategy_name": "re_retrieval",
             "prompt_used": prompt_used,
             "expanded_query": expanded_query,
             "original_query": query,
-            "failed_claims_used": failed_claims[:2] if failed_claims else []
+            "failed_claims_used": failed_claims[:2] if failed_claims else [],
+            # Log context information for clarity
+            "contexts_used": [ctx[1][:200] + "..." if len(ctx[1]) > 200 else ctx[1] for ctx in new_contexts[:5]],  # First 5 contexts, truncated
+            "num_contexts_retrieved": len(new_contexts),
+            "context_summary": f"Retrieved {len(new_contexts)} documents with expanded query"
         }
         
         return revised_generation, new_verification, strategy_metadata
@@ -245,12 +259,16 @@ class AdaptiveRevisionStrategy:
             revised_claims
         )
         
-        # Strategy metadata
+        # Strategy metadata with detailed information
         strategy_metadata = {
             "strategy_name": "constrained_generation",
             "prompt_used": prompt_used,
             "verified_claims": verified_claims,
-            "original_query": query
+            "original_query": query,
+            "num_verified_claims_used": len(verified_claims),
+            "contexts_used": [ctx[1][:200] + "..." if len(ctx[1]) > 200 else ctx[1] for ctx in contexts[:5]],  # First 5 contexts, truncated
+            "num_contexts": len(contexts),
+            "constraint_summary": f"Generated with {len(verified_claims)} verified claim(s) as constraints: {', '.join(verified_claims[:3])}"
         }
         
         return revised_generation, new_verification, strategy_metadata
@@ -293,6 +311,8 @@ class AdaptiveRevisionStrategy:
         revised_claims = []
         claim_queries = []  # Track individual queries used
         claim_prompts = []  # Track prompts used for each claim
+        claim_replacements = []  # Track what each unverified claim was replaced with
+        
         for claim in unverified_claims:
             # Generate replacement claim
             claim_query = f"{query} Specifically about: {claim}"
@@ -305,6 +325,10 @@ class AdaptiveRevisionStrategy:
                 replacement = generation_fn(claim_query, context_text)
             
             revised_claims.append(replacement)
+            claim_replacements.append({
+                "original_claim": claim,
+                "replacement": replacement
+            })
             
             # Construct prompt for this claim
             claim_prompt = f"Question: {claim_query} Context: {context_text[:200]}... Answer:"
@@ -323,14 +347,20 @@ class AdaptiveRevisionStrategy:
             extracted_claims
         )
         
-        # Strategy metadata
+        # Strategy metadata with detailed claim replacement information
         strategy_metadata = {
             "strategy_name": "claim_by_claim",
             "prompt_used": claim_prompts,  # List of prompts, one per unverified claim
             "claim_queries": claim_queries,  # List of focused queries used
             "unverified_claims": unverified_claims,
             "verified_claims": verified_claims,
-            "original_query": query
+            "original_query": query,
+            "claim_replacements": claim_replacements,  # What each unverified claim was replaced with
+            "num_unverified_claims": len(unverified_claims),
+            "num_verified_claims_preserved": len(verified_claims),
+            "contexts_used": [ctx[1][:200] + "..." if len(ctx[1]) > 200 else ctx[1] for ctx in contexts[:5]],  # First 5 contexts, truncated
+            "num_contexts": len(contexts),
+            "replacement_summary": f"Regenerated {len(unverified_claims)} unverified claim(s), preserved {len(verified_claims)} verified claim(s)"
         }
         
         return revised_generation, new_verification, strategy_metadata

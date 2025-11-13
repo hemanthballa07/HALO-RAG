@@ -43,6 +43,8 @@ def run_baseline_experiment(
     corpus: List[str],
     config: Dict[str, Any],
     seed: int = 42,
+    top_k_retrieve: int = 20,
+    top_k_rerank: int = 5,
     wandb_run: Optional[Any] = None
 ) -> Dict[str, Any]:
     """
@@ -106,7 +108,7 @@ def run_baseline_experiment(
     )):
         try:
             # Generate answer (no verification filtering)
-            result = pipeline.generate(query, top_k_retrieve=20, top_k_rerank=5)
+            result = pipeline.generate(query, top_k_retrieve=top_k_retrieve, top_k_rerank=top_k_rerank)
             
             # Get retrieved texts for coverage calculation
             retrieved_texts = result.get("reranked_texts", result.get("retrieved_texts", []))
@@ -242,6 +244,7 @@ def save_results(results: Dict[str, Any], output_dir: str = "results/metrics"):
     # Save CSV
     csv_path = os.path.join(output_dir, "exp1_baseline.csv")
     aggregated = results["aggregated_metrics"]
+    metadata = results.get("metadata", {})
     
     with open(csv_path, 'w', newline='') as f:
         writer = csv.writer(f)
@@ -254,13 +257,34 @@ def save_results(results: Dict[str, Any], output_dir: str = "results/metrics"):
                 f"{stats['min']:.4f}",
                 f"{stats['max']:.4f}"
             ])
+        # Add metadata rows
+        writer.writerow([])  # Empty row
+        writer.writerow(["metadata", "value", "", "", ""])
+        writer.writerow(["corpus_size", metadata.get("corpus_size", "N/A"), "", "", ""])
+        writer.writerow(["top_k_retrieve", metadata.get("top_k_retrieve", "N/A"), "", "", ""])
+        writer.writerow(["top_k_rerank", metadata.get("top_k_rerank", "N/A"), "", "", ""])
+        writer.writerow(["corpus_to_k_ratio", f"{metadata.get('corpus_to_k_ratio', 0):.2f}", "", "", ""])
     print(f"✓ Saved metrics to {csv_path}")
 
 
 def main():
     """Main experiment function."""
     # Parse arguments
-    args = parse_experiment_args(description="Experiment 1: Baseline Comparison")
+    parser = argparse.ArgumentParser(description="Experiment 1: Baseline Comparison")
+    
+    # Add standard experiment args
+    parser.add_argument("--config", type=str, default="config/config.yaml", help="Path to config file")
+    parser.add_argument("--split", type=str, default="validation", choices=["train", "validation", "test"], help="Dataset split to use")
+    parser.add_argument("--limit", type=int, default=None, help="Limit number of examples (for testing). Overrides config.")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed")
+    parser.add_argument("--dry-run", action="store_true", help="Dry run with 20-50 samples for quick testing")
+    parser.add_argument("--no-wandb", action="store_true", help="Disable W&B logging")
+    
+    # Add top-k arguments
+    parser.add_argument("--top-k-retrieve", type=int, default=None, help="Number of documents to retrieve (default: from config)")
+    parser.add_argument("--top-k-rerank", type=int, default=None, help="Number of documents to rerank (default: from config)")
+    
+    args = parser.parse_args()
     
     # Respect --no-wandb flag
     if args.no_wandb:
@@ -268,6 +292,12 @@ def main():
     
     # Load config
     config = load_config(args.config)
+    
+    # Get top-k values (from args or config)
+    top_k_retrieve = args.top_k_retrieve if args.top_k_retrieve is not None else config.get("retrieval", {}).get("fusion", {}).get("top_k", 20)
+    top_k_rerank = args.top_k_rerank if args.top_k_rerank is not None else config.get("retrieval", {}).get("reranker", {}).get("top_k", 5)
+    
+    print(f"Retrieval settings: top_k_retrieve={top_k_retrieve}, top_k_rerank={top_k_rerank}")
     
     # Set random seed
     seed = args.seed
@@ -341,6 +371,8 @@ def main():
         corpus=corpus,
         config=config,
         seed=seed,
+        top_k_retrieve=top_k_retrieve,
+        top_k_rerank=top_k_rerank,
         wandb_run=wandb_run
     )
     
@@ -352,6 +384,10 @@ def main():
         "seed": seed,
         "commit_hash": commit_hash,
         "timestamp": timestamp,
+        "top_k_retrieve": top_k_retrieve,
+        "top_k_rerank": top_k_rerank,
+        "corpus_size": len(corpus),
+        "corpus_to_k_ratio": len(corpus) / top_k_retrieve if top_k_retrieve > 0 else 0,
         "total_queries": len(queries),
         "processed_queries": results["processed_queries"]
         }

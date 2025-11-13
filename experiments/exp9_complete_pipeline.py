@@ -46,6 +46,8 @@ def run_complete_pipeline_experiment(
     enable_revision: bool = True,
     max_revision_iterations: int = 3,
     seed: int = 42,
+    top_k_retrieve: int = 20,
+    top_k_rerank: int = 5,
     wandb_run: Optional[Any] = None
 ) -> Dict[str, Any]:
     """
@@ -123,7 +125,7 @@ def run_complete_pipeline_experiment(
     )):
         try:
             # Generate answer (with verification + revision)
-            result = pipeline.generate(query, top_k_retrieve=20, top_k_rerank=5)
+            result = pipeline.generate(query, top_k_retrieve=top_k_retrieve, top_k_rerank=top_k_rerank)
             
             # Get retrieved texts for coverage calculation
             retrieved_texts = result.get("reranked_texts", result.get("retrieved_texts", []))
@@ -269,6 +271,7 @@ def save_results(results: Dict[str, Any], output_dir: str = "results/metrics"):
     # Save CSV
     csv_path = os.path.join(output_dir, "exp9_complete_pipeline.csv")
     aggregated = results["aggregated_metrics"]
+    metadata = results.get("metadata", {})
     
     with open(csv_path, 'w', newline='') as f:
         writer = csv.writer(f)
@@ -281,6 +284,13 @@ def save_results(results: Dict[str, Any], output_dir: str = "results/metrics"):
                 f"{stats['min']:.4f}",
                 f"{stats['max']:.4f}"
             ])
+        # Add metadata rows
+        writer.writerow([])  # Empty row
+        writer.writerow(["metadata", "value", "", "", ""])
+        writer.writerow(["corpus_size", metadata.get("corpus_size", "N/A"), "", "", ""])
+        writer.writerow(["top_k_retrieve", metadata.get("top_k_retrieve", "N/A"), "", "", ""])
+        writer.writerow(["top_k_rerank", metadata.get("top_k_rerank", "N/A"), "", "", ""])
+        writer.writerow(["corpus_to_k_ratio", f"{metadata.get('corpus_to_k_ratio', 0):.2f}", "", "", ""])
     print(f"✓ Saved metrics to {csv_path}")
 
 
@@ -305,6 +315,10 @@ def main():
     parser.add_argument("--disable-revision", action="store_true",
                        help="Disable revision strategy (for comparison)")
     
+    # Add top-k arguments
+    parser.add_argument("--top-k-retrieve", type=int, default=None, help="Number of documents to retrieve (default: from config)")
+    parser.add_argument("--top-k-rerank", type=int, default=None, help="Number of documents to rerank (default: from config)")
+    
     args = parser.parse_args()
     
     # Respect --no-wandb flag
@@ -313,6 +327,12 @@ def main():
     
     # Load config
     config = load_config(args.config)
+    
+    # Get top-k values (from args or config)
+    top_k_retrieve = args.top_k_retrieve if args.top_k_retrieve is not None else config.get("retrieval", {}).get("fusion", {}).get("top_k", 20)
+    top_k_rerank = args.top_k_rerank if args.top_k_rerank is not None else config.get("retrieval", {}).get("reranker", {}).get("top_k", 5)
+    
+    print(f"Retrieval settings: top_k_retrieve={top_k_retrieve}, top_k_rerank={top_k_rerank}")
     
     # Set random seed
     seed = args.seed
@@ -392,6 +412,8 @@ def main():
         enable_revision=not args.disable_revision,
         max_revision_iterations=args.max_revision_iterations,
         seed=seed,
+        top_k_retrieve=top_k_retrieve,
+        top_k_rerank=top_k_rerank,
         wandb_run=wandb_run
     )
     
@@ -406,6 +428,10 @@ def main():
         "checkpoint": args.checkpoint or "base_model",
         "enable_revision": not args.disable_revision,
         "max_revision_iterations": args.max_revision_iterations,
+        "top_k_retrieve": top_k_retrieve,
+        "top_k_rerank": top_k_rerank,
+        "corpus_size": len(corpus),
+        "corpus_to_k_ratio": len(corpus) / top_k_retrieve if top_k_retrieve > 0 else 0,
         "total_queries": len(queries),
         "processed_queries": results["processed_queries"]
     }

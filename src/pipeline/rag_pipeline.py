@@ -189,6 +189,8 @@ class SelfVerificationRAGPipeline:
         )
         
         # Step 6: Adaptive revision (if enabled and verification failed)
+        # NOTE: Revision decisions are based ONLY on verification results (entailment checking),
+        # NOT on ground truth. This makes the system deployable in production.
         revision_iterations = 0
         revision_history = []  # Track revision history for transparency
         abstained = False
@@ -196,29 +198,66 @@ class SelfVerificationRAGPipeline:
         if self.enable_revision and self.revision_strategy:
             if not verification_results.get("verified", False):
                 for iteration in range(max_revision_iterations):
+                    # Store context before revision for comparison
+                    context_before = context
+                    retrieved_texts_before = reranked_texts.copy()
+                    
                     # Track revision iteration details
                     revision_info = {
                         "iteration": iteration + 1,
                         "generation_before": generated_text,
                         "claims_before": claims,
-                        "verification_before": verification_results.copy()
+                        "verification_before": verification_results.copy(),
+                        "context_before": context_before[:500] + "..." if len(context_before) > 500 else context_before,  # Truncated for logging
+                        "num_contexts_before": len(retrieved_texts_before)
                     }
                     
+                    # Use the same top_k_retrieve for revision strategies
                     revised_text, new_verification, strategy_metadata = self.revision_strategy.revise(
                         query=query,
                         initial_generation=generated_text,
                         verification_results=verification_results,
-                        retrieval_fn=lambda q, top_k=20: self.retriever.retrieve(q, top_k=top_k),
+                        retrieval_fn=lambda q, top_k=top_k_retrieve: self.retriever.retrieve(q, top_k=top_k),
                         generation_fn=lambda q, ctx, **kwargs: self.generator.generate(q, ctx, **kwargs),
                         verification_fn=lambda gen, ctxs, clms: self.verifier.verify_generation(
                             gen, ctxs, clms
                         ),
                         claim_extractor_fn=lambda text: self.claim_extractor.extract_claims(text),
-                        iteration=iteration
+                        iteration=iteration,
+                        top_k_retrieve=top_k_retrieve  # Pass top_k_retrieve to revision strategy
                     )
                     
                     # Extract claims from revised generation
                     revised_claims = self.claim_extractor.extract_claims(revised_text)
+                    
+                    # Get context after revision from strategy metadata
+                    contexts_after = strategy_metadata.get("contexts_used", [])
+                    context_after_summary = strategy_metadata.get("context_summary") or strategy_metadata.get("constraint_summary") or strategy_metadata.get("replacement_summary") or "Contexts used in revision"
+                    
+                    # For re-retrieval, we need to get the actual context text used
+                    # The prompt_used contains the context, but we can also reconstruct it
+                    if strategy_metadata.get("strategy_name") == "re_retrieval":
+                        # Extract context from prompt_used or use contexts_after
+                        if contexts_after:
+                            context_after_text = " ".join(contexts_after[:3])  # Join first 3 contexts
+                        else:
+                            # Fallback: extract from prompt if available
+                            prompt = strategy_metadata.get("prompt_used", "")
+                            if "Context: " in prompt:
+                                context_after_text = prompt.split("Context: ")[1].split("...")[0] if "..." in prompt else prompt.split("Context: ")[1]
+                            else:
+                                context_after_text = "Context retrieved with expanded query"
+                    else:
+                        # For other strategies, use the contexts from metadata
+                        context_after_text = " ".join(contexts_after[:3]) if contexts_after else context_after_summary
+                    
+                    # Compare verification results to show what changed
+                    verification_comparison = self._compare_verification_results(
+                        verification_results,
+                        new_verification,
+                        claims,
+                        revised_claims
+                    )
                     
                     # Update revision info with strategy metadata
                     revision_info["generation_after"] = revised_text
@@ -226,17 +265,28 @@ class SelfVerificationRAGPipeline:
                     revision_info["verification_after"] = new_verification.copy()
                     revision_info["strategy"] = strategy_metadata.get("strategy_name", "unknown")
                     revision_info["prompt_used"] = strategy_metadata.get("prompt_used", None)
+                    revision_info["verification_comparison"] = verification_comparison
                     
-                    # Add strategy-specific metadata
+                    # Add context comparison
+                    revision_info["context_after"] = (context_after_text[:500] + "..." if len(context_after_text) > 500 else context_after_text) if isinstance(context_after_text, str) else context_after_summary
+                    revision_info["contexts_used"] = contexts_after
+                    revision_info["num_contexts_after"] = strategy_metadata.get("num_contexts_retrieved") or strategy_metadata.get("num_contexts", len(contexts_after) if contexts_after else 0)
+                    revision_info["context_change_summary"] = f"Contexts: {len(retrieved_texts_before)} → {revision_info['num_contexts_after']} documents"
+                    
+                    # Add strategy-specific metadata (already includes detailed info from strategy)
                     if strategy_metadata.get("strategy_name") == "re_retrieval":
                         revision_info["expanded_query"] = strategy_metadata.get("expanded_query", None)
                         revision_info["failed_claims_used"] = strategy_metadata.get("failed_claims_used", [])
+                        revision_info["context_summary"] = strategy_metadata.get("context_summary", None)
                     elif strategy_metadata.get("strategy_name") == "constrained_generation":
                         revision_info["verified_claims"] = strategy_metadata.get("verified_claims", [])
+                        revision_info["constraint_summary"] = strategy_metadata.get("constraint_summary", None)
                     elif strategy_metadata.get("strategy_name") == "claim_by_claim":
                         revision_info["claim_queries"] = strategy_metadata.get("claim_queries", [])
                         revision_info["unverified_claims"] = strategy_metadata.get("unverified_claims", [])
                         revision_info["verified_claims"] = strategy_metadata.get("verified_claims", [])
+                        revision_info["claim_replacements"] = strategy_metadata.get("claim_replacements", [])
+                        revision_info["replacement_summary"] = strategy_metadata.get("replacement_summary", None)
                     
                     revision_history.append(revision_info)
                     
@@ -327,4 +377,96 @@ class SelfVerificationRAGPipeline:
     def set_entailment_threshold(self, threshold: float):
         """Update entailment threshold."""
         self.verifier.set_threshold(threshold)
+    
+    def _compare_verification_results(
+        self,
+        verification_before: Dict[str, Any],
+        verification_after: Dict[str, Any],
+        claims_before: List[str],
+        claims_after: List[str]
+    ) -> Dict[str, Any]:
+        """
+        Compare verification results before and after revision to show what changed.
+        
+        Returns a dictionary with:
+        - entailment_rate_change: Change in entailment rate
+        - claim_changes: Per-claim comparison showing score changes
+        - summary: Human-readable summary of changes
+        """
+        before_results = verification_before.get("verification_results", [])
+        after_results = verification_after.get("verification_results", [])
+        
+        entailment_rate_before = verification_before.get("entailment_rate", 0.0)
+        entailment_rate_after = verification_after.get("entailment_rate", 0.0)
+        entailment_rate_change = entailment_rate_after - entailment_rate_before
+        
+        # Create a mapping of claims to their verification results
+        before_map = {r["claim"]: r for r in before_results}
+        after_map = {r["claim"]: r for r in after_results}
+        
+        # Compare claims
+        claim_changes = []
+        all_claims = set(list(before_map.keys()) + list(after_map.keys()))
+        
+        for claim in all_claims:
+            before_result = before_map.get(claim)
+            after_result = after_map.get(claim)
+            
+            if before_result and after_result:
+                # Same claim, compare scores
+                before_score = before_result.get("entailment_score", 0.0)
+                after_score = after_result.get("entailment_score", 0.0)
+                before_entailed = before_result.get("is_entailed", False)
+                after_entailed = after_result.get("is_entailed", False)
+                
+                claim_changes.append({
+                    "claim": claim,
+                    "entailment_score_before": before_score,
+                    "entailment_score_after": after_score,
+                    "score_change": after_score - before_score,
+                    "was_entailed_before": before_entailed,
+                    "is_entailed_after": after_entailed,
+                    "status_change": "improved" if (not before_entailed and after_entailed) else 
+                                    "worsened" if (before_entailed and not after_entailed) else
+                                    "unchanged" if (before_entailed == after_entailed) else "score_changed"
+                })
+            elif before_result and not after_result:
+                # Claim removed
+                claim_changes.append({
+                    "claim": claim,
+                    "status": "removed",
+                    "entailment_score_before": before_result.get("entailment_score", 0.0)
+                })
+            elif not before_result and after_result:
+                # New claim added
+                claim_changes.append({
+                    "claim": claim,
+                    "status": "added",
+                    "entailment_score_after": after_result.get("entailment_score", 0.0),
+                    "is_entailed_after": after_result.get("is_entailed", False)
+                })
+        
+        # Create summary
+        num_improved = sum(1 for c in claim_changes if c.get("status_change") == "improved")
+        num_worsened = sum(1 for c in claim_changes if c.get("status_change") == "worsened")
+        num_unchanged = sum(1 for c in claim_changes if c.get("status_change") == "unchanged")
+        
+        summary = (
+            f"Entailment rate: {entailment_rate_before:.3f} → {entailment_rate_after:.3f} "
+            f"(Δ{entailment_rate_change:+.3f}). "
+            f"Claims: {num_improved} improved, {num_worsened} worsened, {num_unchanged} unchanged."
+        )
+        
+        return {
+            "entailment_rate_before": entailment_rate_before,
+            "entailment_rate_after": entailment_rate_after,
+            "entailment_rate_change": entailment_rate_change,
+            "num_claims_before": len(claims_before),
+            "num_claims_after": len(claims_after),
+            "claim_changes": claim_changes,
+            "num_improved": num_improved,
+            "num_worsened": num_worsened,
+            "num_unchanged": num_unchanged,
+            "summary": summary
+        }
 
