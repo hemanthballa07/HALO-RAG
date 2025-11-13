@@ -36,7 +36,7 @@ project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
 from src.pipeline import SelfVerificationRAGPipeline
-from src.revision.adaptive_strategies import AdaptiveRevisionStrategy, RevisionStrategy
+from src.revision import AdaptiveRevisionStrategy, RevisionStrategy
 
 
 def create_test_corpus():
