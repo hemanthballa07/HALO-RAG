@@ -666,18 +666,21 @@ def main():
     if iterations is None:
         iterations = config.get("experiments", {}).get("exp6", {}).get("iterations", 3)
     
-    # Determine training limit (only for training split)
-    train_limit = args.limit  # --limit applies to training
-    if args.dry_run:
-        train_limit = 100
-        print("⚠ DRY RUN MODE: Using 100 training samples")
-    elif train_limit is None:
-        # Read train_limit from exp6 config (not datasets.sample_limit)
-        train_limit = config.get("experiments", {}).get("exp6", {}).get("train_limit")
+    # Determine training limit (ONLY from exp6.train_limit config)
+    train_limit = config.get("experiments", {}).get("exp6", {}).get("train_limit")
+    if train_limit:
+        print(f"Training limit from config: {train_limit} examples")
+    else:
+        print("No training limit specified - using full training set")
     
-    # Determine validation limit (separate from training limit)
-    # Use datasets.sample_limit for validation, or no limit if not specified
-    val_limit = config.get("datasets", {}).get("sample_limit")
+    # Determine validation limit (from --limit arg, --dry-run, or datasets.sample_limit config)
+    val_limit = args.limit  # --limit controls evaluation/validation size
+    if args.dry_run:
+        val_limit = 100
+        print("⚠ DRY RUN MODE: Using 100 validation samples")
+    elif val_limit is None:
+        # Fall back to datasets.sample_limit config if --limit not provided
+        val_limit = config.get("datasets", {}).get("sample_limit")
     
     # Load datasets
     print("Loading datasets...")
@@ -705,7 +708,12 @@ def main():
     # Apply validation limit (only to validation split, if specified)
     if val_limit:
         val_examples = val_examples[:val_limit]
-        print(f"Limited validation to {len(val_examples)} examples (from datasets.sample_limit config)")
+        if args.dry_run:
+            print(f"Limited validation to {len(val_examples)} examples (dry-run mode)")
+        elif args.limit:
+            print(f"Limited validation to {len(val_examples)} examples (from --limit argument)")
+        else:
+            print(f"Limited validation to {len(val_examples)} examples (from datasets.sample_limit config)")
     else:
         print(f"Using full validation set: {len(val_examples)} examples")
             
