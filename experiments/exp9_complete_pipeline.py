@@ -1,178 +1,139 @@
 """
-HALO-RAG: Complete Pipeline with Fine-Tuned Generator + Revision Strategy
-
-This script demonstrates the complete HALO-RAG pipeline:
-1. Fine-tuned FLAN-T5 generator (from iterative training)
-2. Self-verification with entailment checking
-3. Adaptive revision strategy
-
-This is our main contribution: Self-Verification RAG with Adaptive Revision
+Experiment 9: Complete HALO-RAG Pipeline
+Fine-tuned generator + adaptive revision strategy
 """
 
 import sys
+import os
+import argparse
 from pathlib import Path
+import json
+import csv
+from datetime import datetime
+
+# Add project root to path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
+import yaml
 import torch
 import numpy as np
-import yaml
-import argparse
-from typing import List, Dict, Optional
+from typing import List, Dict, Any, Optional
 from tqdm import tqdm
-import json
-import os
+import random
 
-from src.pipeline import SelfVerificationRAGPipeline
 from src.data import load_dataset_from_config, prepare_for_experiments
-from src.evaluation import EvaluationMetrics
+from src.pipeline import SelfVerificationRAGPipeline
+from src.evaluation import EvaluationMetrics, StatisticalTester
+from src.utils import setup_wandb, log_metrics, log_metadata, get_commit_hash, get_timestamp
+from src.utils.cli import parse_experiment_args
 
 
-def load_config_and_dataset(config_path: str = "config/config.yaml", split: str = "validation", limit: Optional[int] = None, seed: int = 42):
+def load_config(config_path: str = "config/config.yaml"):
+    """Load configuration."""
+    with open(config_path, 'r') as f:
+        config = yaml.safe_load(f)
+    return config
+
+
+def run_complete_pipeline_experiment(
+    queries: List[str],
+    ground_truths: List[str],
+    relevant_docs: List[List[int]],
+    corpus: List[str],
+    config: Dict[str, Any],
+    fine_tuned_checkpoint: str,
+    enable_revision: bool = True,
+    max_revision_iterations: int = 3,
+    seed: int = 42,
+    wandb_run: Optional[Any] = None
+) -> Dict[str, Any]:
     """
-    Load configuration and dataset.
+    Run complete HALO-RAG pipeline experiment (fine-tuned generator + revision).
     
     Args:
-        config_path: Path to config file
-        split: Dataset split to use (default: "validation" for evaluation)
-            ⚠ IMPORTANT: Must use "validation" split to match Exp1 baseline and avoid
-            data leakage with Exp6 which uses "train" split for fine-tuning.
-        limit: Limit number of examples (applied deterministically as first N)
-        seed: Random seed for reproducibility (ensures same split as baseline)
-    """
-    import random
-    import numpy as np
-    import torch
+        queries: List of queries
+        ground_truths: List of ground truth answers
+        relevant_docs: List of relevant document IDs for each query
+        corpus: List of documents
+        config: Configuration dictionary
+        fine_tuned_checkpoint: Path to fine-tuned generator checkpoint
+        enable_revision: Whether to enable adaptive revision
+        max_revision_iterations: Maximum revision attempts
+        seed: Random seed
+        wandb_run: W&B run object (optional)
     
-    # Set random seed for reproducibility (matches exp1_baseline.py)
+    Returns:
+        Dictionary with results and metrics
+    """
+    # Set random seed
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     
-    # Load config
-    with open(config_path, 'r') as f:
-        config = yaml.safe_load(f)
+    device = "cuda"
+    print(f"Using device: {device}")
     
-    # Load validation dataset
-    val_examples = load_dataset_from_config(config, split=split)
+    use_qlora = config.get("generation", {}).get("qlora", {}).get("training_enabled", False)
     
-    # Apply limit deterministically (first N examples, matching exp1_baseline.py)
-    if limit:
-        val_examples = val_examples[:limit]
-        print(f"Limited to {len(val_examples)} examples (first {limit} from {split} split)")
+    # Initialize pipeline (with fine-tuned generator + revision)
+    print("Initializing pipeline (fine-tuned generator + revision)...")
+    # Get verifier model from config
+    verifier_model = config.get("verification", {}).get("entailment_model", "cross-encoder/nli-deberta-v3-base")
+    verifier_threshold = config.get("verification", {}).get("threshold", 0.75)
     
-    val_queries, val_ground_truths, val_relevant_docs, corpus = prepare_for_experiments(val_examples)
-    
-    print(f"Loaded {len(val_queries)} {split} queries")
-    print(f"Corpus size: {len(corpus)}")
-    
-    return config, val_queries, val_ground_truths, val_relevant_docs, corpus
-
-
-def initialize_halo_rag_pipeline(
-    corpus: List[str],
-    fine_tuned_checkpoint: str,
-    config: Dict,
-    enable_revision: bool = True,
-    max_revision_iterations: int = 3
-):
-    """
-    Initialize HALO-RAG pipeline with fine-tuned generator + revision.
-    
-    Args:
-        corpus: List of documents
-        fine_tuned_checkpoint: Path to fine-tuned generator checkpoint
-        config: Configuration dictionary
-        enable_revision: Whether to enable adaptive revision
-        max_revision_iterations: Maximum revision attempts
-    
-    Returns:
-        Initialized pipeline
-    """
     pipeline = SelfVerificationRAGPipeline(
         corpus=corpus,
-        device="cuda",
-        enable_revision=enable_revision,  # Enable adaptive revision (our contribution)
+        device=device,
+        enable_revision=enable_revision,  # Enable revision strategy
         max_revision_iterations=max_revision_iterations,
-        use_qlora=True,
+        use_qlora=use_qlora,
         generator_lora_checkpoint=fine_tuned_checkpoint,  # Load fine-tuned generator
-        verifier_model=config.get("verification", {}).get("entailment_model", "cross-encoder/nli-deberta-v3-base"),
-        entailment_threshold=config.get("verification", {}).get("threshold", 0.75)
+        verifier_model=verifier_model,
+        entailment_threshold=verifier_threshold
     )
     
-    print("✓ HALO-RAG Pipeline initialized with:")
-    print(f"  - Fine-tuned generator: {fine_tuned_checkpoint}")
-    print(f"  - Revision strategy: {'Enabled' if enable_revision else 'Disabled'}")
-    print(f"  - Max revision iterations: {max_revision_iterations}")
+    print(f"✓ Pipeline initialized with fine-tuned checkpoint: {fine_tuned_checkpoint}")
+    print(f"✓ Revision strategy: {'Enabled' if enable_revision else 'Disabled'}")
     
-    return pipeline
-
-
-def run_pipeline_on_queries(
-    pipeline: SelfVerificationRAGPipeline,
-    queries: List[str],
-    ground_truths: List[str],
-    relevant_docs: List[List[int]],
-    num_samples: Optional[int] = None,
-    verbose: bool = True
-):
-    """
-    Run HALO-RAG pipeline on queries and compute metrics.
-    
-    Args:
-        pipeline: HALO-RAG pipeline
-        queries: List of queries
-        ground_truths: List of ground truth answers
-        relevant_docs: List of relevant document IDs
-        num_samples: Number of samples to process (None = all)
-        verbose: Whether to print detailed results
-    
-    Returns:
-        List of results with metrics
-    """
-    # Note: Sample limiting is handled in load_config_and_dataset to ensure
-    # deterministic selection (first N examples) matching exp1_baseline.py
-    # If num_samples is provided here, it's ignored to maintain consistency
-    if num_samples and num_samples < len(queries):
-        print(f"⚠ Warning: num_samples={num_samples} provided, but limit should be set via --limit in load_config_and_dataset for consistency with baseline")
-        print(f"   Processing all {len(queries)} queries from loaded dataset\n")
-    else:
-        print(f"Running HALO-RAG on {len(queries)} queries...\n")
-    
-    results = []
+    # Initialize evaluator
     evaluator = EvaluationMetrics()
     
+    # Run experiments
+    print(f"Running complete pipeline experiment on {len(queries)} queries...")
+    results = []
+    all_metrics = []
+    
     for idx, (query, gt, rel_docs) in enumerate(tqdm(
-        zip(queries, ground_truths, relevant_docs),
-        total=len(queries),
-        desc="Processing queries"
+        zip(queries, ground_truths, relevant_docs), 
+        total=len(queries), 
+        desc="Complete Pipeline"
     )):
         try:
-            # Generate with HALO-RAG (includes verification + revision)
-            result = pipeline.generate(
-                query=query,
-                top_k_retrieve=20,
-                top_k_rerank=5
-            )
+            # Generate answer (with verification + revision)
+            result = pipeline.generate(query, top_k_retrieve=20, top_k_rerank=5)
             
-            # Extract information
-            generated_text = result["generated_text"]
+            # Get retrieved texts for coverage calculation
             retrieved_texts = result.get("reranked_texts", result.get("retrieved_texts", []))
-            verification_results = result["verification_results"]
-            revision_iterations = result.get("revision_iterations", 0)
-            verified = verification_results.get("verified", False)
-            combined_context = result.get("context", "")
             
-            # Extract claims for transparency (matching exp1_baseline)
+            # Extract revision iterations (only in exp9)
+            revision_iterations = result.get("revision_iterations", 0)
+            
+            # Extract claims from ground truth for factual recall calculation
             ground_truth_claims = pipeline.claim_extractor.extract_claims(gt)
+            
+            # Extract claims from generated text (already extracted in pipeline, but get them)
             generated_claims = result.get("claims", [])
             if not generated_claims:
-                generated_claims = pipeline.claim_extractor.extract_claims(generated_text)
+                # Fallback: extract claims if not in result
+                generated_claims = pipeline.claim_extractor.extract_claims(result["generated_text"])
             
             # Format claims for MNLI model (as they are passed to the entailment verifier)
+            combined_context = result.get("context", "")
             formatted_generated_claims = []
             formatted_ground_truth_claims = []
             
+            # Format generated claims
             for claim in generated_claims:
                 formatted_claim = pipeline.verifier._format_claim_for_verification(claim, combined_context)
                 formatted_generated_claims.append({
@@ -180,6 +141,7 @@ def run_pipeline_on_queries(
                     "formatted_claim": formatted_claim
                 })
             
+            # Format ground truth claims
             for claim in ground_truth_claims:
                 formatted_claim = pipeline.verifier._format_claim_for_verification(claim, combined_context)
                 formatted_ground_truth_claims.append({
@@ -187,57 +149,53 @@ def run_pipeline_on_queries(
                     "formatted_claim": formatted_claim
                 })
             
-            # Compute metrics (with ground_truth_claims for factual recall)
+            # Compute metrics
             metrics = evaluator.compute_all_metrics(
                 retrieved_docs=result["retrieved_docs"],
                 relevant_docs=rel_docs,
-                verification_results=verification_results["verification_results"],
-                generated=generated_text,
+                verification_results=result["verification_results"]["verification_results"],
+                generated=result["generated_text"],
                 ground_truth=gt,
                 retrieved_texts=retrieved_texts,
                 ground_truth_claims=ground_truth_claims,
                 verifier=pipeline.verifier  # Pass verifier for factual recall calculation
             )
             
+            all_metrics.append(metrics)
             results.append({
                 "query": query,
                 "ground_truth": gt,
-                "generated": generated_text,
+                "generated": result["generated_text"],
                 "retrieved_texts": result.get("retrieved_texts", []),
-                "reranked_texts": retrieved_texts,
-                "context": combined_context,
+                "reranked_texts": result.get("reranked_texts", []),
+                "context": result.get("context", ""),
                 "generated_claims": generated_claims,
                 "ground_truth_claims": ground_truth_claims,
                 "formatted_generated_claims": formatted_generated_claims,
                 "formatted_ground_truth_claims": formatted_ground_truth_claims,
-                "verified": verified,
+                "verification_results": result.get("verification_results", {}),
+                "verified": result.get("verification_results", {}).get("verified", False),
                 "revision_iterations": revision_iterations,  # Only in exp9
-                "metrics": metrics,
-                "verification_results": verification_results
+                "metrics": metrics
             })
             
-            # Print sample results
-            if verbose and idx < 3:  # Print first 3 examples
-                print(f"\n{'='*80}")
-                print(f"Query {idx + 1}: {query}")
-                print(f"Ground Truth: {gt}")
-                print(f"Generated: {generated_text}")
-                print(f"Verified: {verified}")
-                print(f"Revision Iterations: {revision_iterations}")
-                print(f"Factual Precision: {metrics['factual_precision']:.3f}")
-                print(f"Hallucination Rate: {metrics['hallucination_rate']:.3f}")
-                print(f"Verified F1: {metrics['verified_f1']:.3f}")
-                print(f"F1 Score: {metrics['f1_score']:.3f}")
+            # Log to W&B periodically
+            if wandb_run and (idx + 1) % 100 == 0:
+                avg_metrics = {
+                    k: np.mean([m[k] for m in all_metrics])
+                    for k in all_metrics[0].keys()
+                }
+                log_metrics(avg_metrics, step=idx + 1, prefix="complete_pipeline/")
         
         except Exception as e:
+            import traceback
             print(f"Error processing query {idx}: {e}")
+            print(f"Query: {query[:100]}...")
+            traceback.print_exc()
             continue
     
-    return results
-
-
-def aggregate_results(results: List[Dict]) -> Dict:
-    """Aggregate metrics across all results (matching exp1_baseline format)."""
+    # Aggregate metrics
+    print("\nAggregating metrics...")
     metric_names = [
         "recall@20", "coverage", "factual_precision", "factual_recall",
         "hallucination_rate", "verified_f1", "f1_score",
@@ -246,95 +204,54 @@ def aggregate_results(results: List[Dict]) -> Dict:
     ]
     
     aggregated = {}
+    if not all_metrics:
+        print("⚠ Warning: No metrics collected. Check query processing errors above.")
+        return {
+            "results": results,
+            "aggregated_metrics": {},
+            "num_processed": len(results),
+            "num_errors": len(queries) - len(results)
+        }
+    
     for metric_name in metric_names:
-        scores = [r["metrics"].get(metric_name, 0.0) for r in results if "metrics" in r]
-        if scores:
-            aggregated[metric_name] = {
-                "mean": float(np.mean(scores)),
-                "std": float(np.std(scores)),
-                "min": float(np.min(scores)),
-                "max": float(np.max(scores))
-            }
-        else:
-            aggregated[metric_name] = {
-                "mean": 0.0,
-                "std": 0.0,
-                "min": 0.0,
-                "max": 0.0
-            }
+        if all_metrics and metric_name in all_metrics[0]:
+            scores = [m[metric_name] for m in all_metrics if metric_name in m]
+            if scores:
+                aggregated[metric_name] = {
+                    "mean": float(np.mean(scores)),
+                    "std": float(np.std(scores)),
+                    "min": float(np.min(scores)),
+                    "max": float(np.max(scores)),
+                    "scores": scores
+                }
     
-    return aggregated
-
-
-def print_results(results: List[Dict], aggregated: Dict):
-    """Print aggregated results and statistics."""
-    # Print aggregated results
-    print(f"\n{'='*80}")
-    print("HALO-RAG Results (Fine-Tuned Generator + Revision)")
-    print(f"{'='*80}")
-    print(f"\n{'Metric':<25} {'Mean':<10} {'Std':<10} {'Min':<10} {'Max':<10}")
-    print("-" * 80)
-    for metric_name, stats in aggregated.items():
-        print(f"{metric_name:<25} {stats['mean']:<10.4f} {stats['std']:<10.4f} {stats['min']:<10.4f} {stats['max']:<10.4f}")
+    # Log final metrics to W&B
+    if wandb_run:
+        final_metrics = {k: v["mean"] for k, v in aggregated.items()}
+        log_metrics(final_metrics, prefix="complete_pipeline/final/")
     
-    # Revision statistics
-    revision_counts = [r["revision_iterations"] for r in results]
-    verified_counts = sum(1 for r in results if r["verified"])
-    print(f"\nRevision Statistics:")
-    print(f"  Average revision iterations: {np.mean(revision_counts):.2f}")
-    print(f"  Verified answers: {verified_counts}/{len(results)} ({100*verified_counts/len(results):.1f}%)")
-
-
-def print_detailed_example(results: List[Dict]):
-    """Print a detailed example of a query that required revision."""
-    # Find an example that required revision
-    revised_examples = [r for r in results if r["revision_iterations"] > 0]
-    
-    if revised_examples:
-        example = revised_examples[0]
-        print(f"\n{'='*80}")
-        print("Example: Query that Required Revision")
-        print(f"{'='*80}")
-        print(f"\nQuery: {example['query']}")
-        print(f"Ground Truth: {example['ground_truth']}")
-        print(f"Generated Answer: {example['generated']}")
-        print(f"Revision Iterations: {example['revision_iterations']}")
-        print(f"Final Verification Status: {'✓ Verified' if example['verified'] else '✗ Not Verified'}")
-        
-        # Show verification details
-        verif_results = example['verification_results']['verification_results']
-        print(f"\nVerification Details:")
-        print(f"  Total Claims: {len(verif_results)}")
-        print(f"  Entailed Claims: {sum(1 for v in verif_results if v.get('is_entailed', False))}")
-        print(f"  Factual Precision: {example['metrics']['factual_precision']:.3f}")
-        print(f"  Hallucination Rate: {example['metrics']['hallucination_rate']:.3f}")
-    else:
-        print("\nNo examples required revision (all answers verified on first attempt)")
-
-
-def save_results(results: List[Dict], aggregated: Dict, output_path: str = "results/halo_rag_complete_pipeline.json"):
-    """Save results to JSON and CSV files (matching exp1_baseline format)."""
-    import csv
-    
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    
-    # Save JSON (matching exp1_baseline structure)
-    output = {
+    return {
         "aggregated_metrics": aggregated,
         "individual_results": results,
-        "summary": {
-            "total_queries": len(results),
-            "verified_count": sum(1 for r in results if r["verified"]),
-            "avg_revision_iterations": float(np.mean([r.get("revision_iterations", 0) for r in results]))
-        }
+        "total_queries": len(queries),
+        "processed_queries": len(results)
     }
+
+
+def save_results(results: Dict[str, Any], output_dir: str = "results/metrics"):
+    """Save results to JSON and CSV."""
+    os.makedirs(output_dir, exist_ok=True)
     
-    with open(output_path, 'w') as f:
-        json.dump(output, f, indent=2)
-    print(f"✓ Saved results to {output_path}")
+    # Save JSON
+    json_path = os.path.join(output_dir, "exp9_complete_pipeline.json")
+    with open(json_path, 'w') as f:
+        json.dump(results, f, indent=2)
+    print(f"✓ Saved results to {json_path}")
     
-    # Save CSV (matching exp1_baseline format)
-    csv_path = output_path.replace(".json", ".csv")
+    # Save CSV
+    csv_path = os.path.join(output_dir, "exp9_complete_pipeline.csv")
+    aggregated = results["aggregated_metrics"]
+    
     with open(csv_path, 'w', newline='') as f:
         writer = csv.writer(f)
         writer.writerow(["metric", "mean", "std", "min", "max"])
@@ -350,101 +267,160 @@ def save_results(results: List[Dict], aggregated: Dict, output_path: str = "resu
 
 
 def main():
-    """Main function to run HALO-RAG complete pipeline."""
-    parser = argparse.ArgumentParser(description="HALO-RAG Complete Pipeline with Fine-Tuned Generator + Revision")
+    """Main experiment function."""
+    # Parse arguments (extend parse_experiment_args with checkpoint)
+    parser = argparse.ArgumentParser(description="Experiment 9: Complete HALO-RAG Pipeline")
+    
+    # Add standard experiment args
+    parser.add_argument("--config", type=str, default="config/config.yaml", help="Path to config file")
+    parser.add_argument("--split", type=str, default="validation", choices=["train", "validation", "test"], help="Dataset split to use")
+    parser.add_argument("--limit", type=int, default=None, help="Limit number of examples (for testing). Overrides config.")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed")
+    parser.add_argument("--dry-run", action="store_true", help="Dry run with 20-50 samples for quick testing")
+    parser.add_argument("--no-wandb", action="store_true", help="Disable W&B logging")
+    
+    # Add exp9-specific args
     parser.add_argument("--checkpoint", type=str, required=True,
-                       help="Path to fine-tuned generator checkpoint (e.g., checkpoints/iterative_training/iter3)")
-    parser.add_argument("--config", type=str, default="config/config.yaml",
-                       help="Path to config file")
-    parser.add_argument("--split", type=str, default="validation",
-                       help="Dataset split to use (train/validation/test)")
-    parser.add_argument("--limit", type=int, default=None,
-                       help="Limit number of examples (applied deterministically as first N, matching exp1_baseline.py)")
-    parser.add_argument("--seed", type=int, default=42,
-                       help="Random seed for reproducibility (must match exp1_baseline.py for fair comparison)")
+                       help="Path to fine-tuned generator checkpoint (e.g., checkpoints/exp6_iter3/)")
     parser.add_argument("--max-revision-iterations", type=int, default=3,
                        help="Maximum revision iterations")
     parser.add_argument("--disable-revision", action="store_true",
                        help="Disable revision strategy (for comparison)")
-    parser.add_argument("--output", type=str, default="results/halo_rag_complete_pipeline.json",
-                       help="Output path for results JSON")
-    parser.add_argument("--quiet", action="store_true",
-                       help="Suppress detailed output")
     
     args = parser.parse_args()
     
-    print("="*80)
-    print("HALO-RAG: Complete Pipeline with Fine-Tuned Generator + Revision")
-    print("="*80)
+    # Load config
+    config = load_config(args.config)
     
-    # Set random seed for reproducibility (must match exp1_baseline.py)
-    import random
-    import numpy as np
-    import torch
-    random.seed(args.seed)
-    np.random.seed(args.seed)
-    torch.manual_seed(args.seed)
+    # Set random seed
+    seed = args.seed
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
     
-    # 1. Load configuration and dataset
-    print("\n[1/5] Loading configuration and dataset...")
-    print(f"Using seed={args.seed} (must match exp1_baseline.py for fair comparison)")
+    # Determine sample limit
+    sample_limit = args.limit
+    if args.dry_run:
+        sample_limit = 30  # Dry run with 30 samples
+        print("⚠ DRY RUN MODE: Using 30 samples")
+    elif sample_limit is None:
+        sample_limit = config.get("datasets", {}).get("sample_limit")
+    
+    # Load dataset
+    print("Loading dataset...")
     if args.split != "validation":
-        print(f"⚠ WARNING: Using '{args.split}' split. For fair comparison and to avoid data leakage,")
-        print("   use 'validation' split (Exp6 uses 'train' split for fine-tuning).")
+        print(f"⚠ WARNING: Using '{args.split}' split. For fair comparison with Exp1 and Exp6, use 'validation' split.")
+        print("   Exp6 uses 'train' split for fine-tuning, so evaluation should use 'validation' to avoid data leakage.")
     else:
         print("✓ Using 'validation' split (correct for evaluation, avoids data leakage with Exp6 training data)")
-    config, queries, ground_truths, relevant_docs, corpus = load_config_and_dataset(
-        config_path=args.config,
-        split=args.split,
-        limit=args.limit,
-        seed=args.seed
-    )
+    examples = load_dataset_from_config(config, split=args.split)
     
-    # 2. Initialize HALO-RAG pipeline
-    print("\n[2/5] Initializing HALO-RAG pipeline...")
-    pipeline = initialize_halo_rag_pipeline(
-        corpus=corpus,
-        fine_tuned_checkpoint=args.checkpoint,
-        config=config,
-        enable_revision=not args.disable_revision,
-        max_revision_iterations=args.max_revision_iterations
-    )
+    # Apply sample limit if specified
+    if sample_limit:
+        examples = examples[:sample_limit]
+        print(f"Limited to {len(examples)} examples")
     
-    # 3. Run pipeline on queries
-    print("\n[3/5] Running HALO-RAG pipeline on queries...")
-    results = run_pipeline_on_queries(
-        pipeline=pipeline,
+    # Prepare for experiments
+    queries, ground_truths, relevant_docs, corpus = prepare_for_experiments(examples)
+    
+    print(f"Loaded {len(queries)} queries")
+    print(f"Corpus size: {len(corpus)}")
+    
+    # Get metadata
+    commit_hash = get_commit_hash()
+    timestamp = get_timestamp()
+    dataset_name = config.get("datasets", {}).get("active", "unknown")
+    
+    # Setup W&B
+    wandb_run = None
+    if not args.no_wandb:
+        wandb_run = setup_wandb(
+            project_name="SelfVerifyRAG",
+            run_name="exp9_complete_pipeline",
+            config={
+                "experiment": "exp9_complete_pipeline",
+                "dataset": dataset_name,
+                "split": args.split,
+                "sample_limit": sample_limit,
+                "seed": seed,
+                "checkpoint": args.checkpoint,
+                "enable_revision": not args.disable_revision,
+                "max_revision_iterations": args.max_revision_iterations
+            },
+            enabled=True
+        )
+        
+        # Log metadata
+        log_metadata(
+            dataset_name=dataset_name,
+            split=args.split,
+            sample_limit=sample_limit,
+            commit_hash=commit_hash,
+            timestamp=timestamp
+        )
+    
+    # Run experiment
+    results = run_complete_pipeline_experiment(
         queries=queries,
         ground_truths=ground_truths,
         relevant_docs=relevant_docs,
-        num_samples=None,  # Limit already applied in load_config_and_dataset for consistency
-        verbose=not args.quiet
+        corpus=corpus,
+        config=config,
+        fine_tuned_checkpoint=args.checkpoint,
+        enable_revision=not args.disable_revision,
+        max_revision_iterations=args.max_revision_iterations,
+        seed=seed,
+        wandb_run=wandb_run
     )
     
-    # 4. Aggregate results
-    print("\n[4/5] Aggregating results...")
-    aggregated = aggregate_results(results)
-    
-    # 5. Print results
-    print("\n[5/5] Results:")
-    print_results(results, aggregated)
-    print_detailed_example(results)
+    # Add metadata to results
+    results["metadata"] = {
+        "dataset": dataset_name,
+        "split": args.split,
+        "sample_limit": sample_limit,
+        "seed": seed,
+        "commit_hash": commit_hash,
+        "timestamp": timestamp,
+        "checkpoint": args.checkpoint,
+        "enable_revision": not args.disable_revision,
+        "max_revision_iterations": args.max_revision_iterations,
+        "total_queries": len(queries),
+        "processed_queries": results["processed_queries"]
+    }
     
     # Save results
-    save_results(results, aggregated, args.output)
+    save_results(results)
     
-    print("\n" + "="*80)
-    print("Key Contributions Demonstrated:")
-    print("="*80)
-    print("1. Fine-Tuned Generator: Uses iteratively fine-tuned FLAN-T5 on self-verified data")
-    print("2. Self-Verification: Entailment-based verification of generated claims")
-    print("3. Adaptive Revision: Automatically revises answers when verification fails")
-    print("4. Transparency: Verification metrics provide insight into factuality")
-    print("\nResult: Lower hallucination rate and higher verified F1 compared to baseline RAG")
-    print("="*80)
+    # Print summary
+    print("\n" + "=" * 70)
+    print("Experiment 9: Complete HALO-RAG Pipeline Results")
+    print("=" * 70)
+    aggregated = results["aggregated_metrics"]
+    for metric_name, stats in aggregated.items():
+        print(f"{metric_name}: {stats['mean']:.4f} ± {stats['std']:.4f}")
+    
+    print(f"\nVerified F1: {aggregated.get('verified_f1', {}).get('mean', 0):.4f}")
+    print(f"Factual Precision: {aggregated.get('factual_precision', {}).get('mean', 0):.4f}")
+    print(f"Hallucination Rate: {aggregated.get('hallucination_rate', {}).get('mean', 0):.4f}")
+    
+    # Revision statistics (exp9 only)
+    revision_counts = [r.get("revision_iterations", 0) for r in results["individual_results"]]
+    verified_counts = sum(1 for r in results["individual_results"] if r.get("verified", False))
+    if revision_counts:
+        print(f"\nRevision Statistics:")
+        print(f"  Average revision iterations: {np.mean(revision_counts):.2f}")
+        print(f"  Verified answers: {verified_counts}/{len(results['individual_results'])} ({100*verified_counts/len(results['individual_results']):.1f}%)")
+    
+    # Close W&B run
+    if wandb_run:
+        try:
+            import wandb
+            wandb.finish()
+        except Exception:
+            pass
+    
+    return results
 
 
 if __name__ == "__main__":
-    from typing import Optional
-    main()
-
+    results = main()
