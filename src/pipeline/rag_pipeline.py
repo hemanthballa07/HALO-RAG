@@ -197,7 +197,7 @@ class SelfVerificationRAGPipeline:
                         query=query,
                         initial_generation=generated_text,
                         verification_results=verification_results,
-                        retrieval_fn=lambda q, k: self.retriever.retrieve(q, top_k=k),
+                        retrieval_fn=lambda q, top_k=20: self.retriever.retrieve(q, top_k=top_k),
                         generation_fn=lambda q, ctx: self.generator.generate(q, ctx),
                         verification_fn=lambda gen, ctxs, clms: self.verifier.verify_generation(
                             gen, ctxs, clms
