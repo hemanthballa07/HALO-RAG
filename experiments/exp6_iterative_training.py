@@ -727,8 +727,16 @@ def main():
     print("Loading datasets...")
     print("⚠ IMPORTANT: Exp6 uses 'train' split for fine-tuning and 'validation' split for evaluation")
     print("   This ensures no data leakage between training and evaluation.")
-    train_examples = load_dataset_from_config(config, split="train")
-    val_examples = load_dataset_from_config(config, split="validation")
+    train_examples = load_dataset_from_config(
+        config,
+        split="train",
+        limit=train_limit
+    )
+    val_examples = load_dataset_from_config(
+        config,
+        split="validation",
+        limit=val_limit
+    )
     
     # Verify splits are different (sanity check)
     if len(train_examples) > 0 and len(val_examples) > 0:

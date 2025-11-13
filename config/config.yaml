@@ -3,7 +3,7 @@
 # Dataset Configuration
 datasets:
   active: "squad_v2" # or "natural_questions", "hotpotqa"
-  sample_limit: null # Limit number of examples (null = no limit, set to int for testing)
+  sample_limit: 5000 # Limit number of examples (null = no limit, set to int for testing)
   splits:
     train: "train"
     validation: "validation"
@@ -11,11 +11,11 @@ datasets:
 
   # Dataset-specific settings
   squad_v2:
-    cache_dir: null # Use default cache if null
+    cache_dir: ./data/squad_v2  # Use default cache if null
   natural_questions:
-    cache_dir: null
+    cache_dir: ./data/natural_questions 
   hotpotqa:
-    cache_dir: null
+    cache_dir: ./data/hotpotqa 
 
 # Legacy dataset config (for backward compatibility)
 dataset:
@@ -159,7 +159,7 @@ experiments:
   # Experiment 6: Iterative Fine-Tuning
   exp6:
     iterations: 3 # Number of fine-tuning iterations
-    train_limit: null # Limit training examples (null = no limit, set for smoke tests)
+    train_limit: 10000 # Limit training examples (null = no limit, set for smoke tests)
     top_k_passages: 5 # Number of top passages to include in training triples
 
 # Paths
