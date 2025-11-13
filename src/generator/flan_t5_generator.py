@@ -83,7 +83,8 @@ class FLANT5Generator:
             # For iterative training, keep as PEFT model (don't merge)
             self.model = PeftModel.from_pretrained(
                 self.model,
-                lora_checkpoint
+                lora_checkpoint,
+                is_trainable=True  # Ensure adapters are trainable for continued training
             )
             # Don't merge - keep as PEFT model for further fine-tuning
         else:

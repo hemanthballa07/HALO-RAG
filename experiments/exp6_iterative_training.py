@@ -146,12 +146,29 @@ def fine_tune_iteration(
     
     # If model already has PEFT adapters (from previous checkpoint), use it directly
     # Otherwise, initialize trainer to add adapters
-    from peft import PeftModel
+    from peft import PeftModel, get_peft_model, LoraConfig, TaskType
     if isinstance(generator.model, PeftModel):
-        # Model already has PEFT adapters, use directly
+        # Model already has PEFT adapters from checkpoint
         model = generator.model
         # Set to training mode
         model.train()
+        # For iterative training, we need to ensure PEFT adapters are trainable
+        # The base model should be frozen, but PEFT adapters should have gradients
+        # PEFT library should handle this, but let's verify and fix if needed
+        trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        if trainable_params == 0:
+            logger.warning("No trainable parameters found in loaded PEFT model!")
+            logger.warning("This might indicate the checkpoint was saved incorrectly or model is frozen.")
+            # Try to enable training on PEFT adapters
+            model.enable_adapter_layers()
+            # Ensure adapter parameters are trainable
+            for name, param in model.named_parameters():
+                if "lora" in name.lower():
+                    param.requires_grad = True
+            trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+            logger.info(f"Enabled training on {trainable_params} parameters")
+        else:
+            logger.info(f"Model has {trainable_params} trainable parameters")
     else:
         # Initialize trainer to add adapters
         trainer = QLoRATrainer(
@@ -240,6 +257,17 @@ def fine_tune_iteration(
         run_name=f"exp6_iter{iteration}"
     )
     
+    # Verify model is ready for training
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    if trainable_params == 0:
+        raise RuntimeError(
+            f"No trainable parameters found in model! "
+            f"This usually means the PEFT adapters are not properly configured for training. "
+            f"Check that the checkpoint was saved correctly and that PEFT adapters are enabled."
+        )
+    
+    logger.info(f"Starting training with {trainable_params} trainable parameters")
+    
     # Trainer
     trainer = Trainer(
         model=model,
@@ -252,9 +280,16 @@ def fine_tune_iteration(
     # Train
     trainer.train()
     
-    # Save final model
+    # Save final model (ensure we're saving the PEFT adapters, not the full model)
+    # For PEFT models, save_pretrained saves only the adapter weights
     model.save_pretrained(checkpoint_path)
     generator.tokenizer.save_pretrained(checkpoint_path)
+    
+    # Verify checkpoint was saved correctly
+    logger.info(f"Checkpoint saved to {checkpoint_path}")
+    logger.info(f"Model type: {type(model).__name__}")
+    if isinstance(model, PeftModel):
+        logger.info(f"PEFT adapters saved. Model has {len(model.peft_config)} adapter(s)")
     
     logger.info(f"Fine-tuning complete. Checkpoint saved to {checkpoint_path}")
     
