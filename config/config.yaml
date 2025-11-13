@@ -74,7 +74,7 @@ verification:
   entailment_model: "microsoft/deberta-v3-large"
   mnli_checkpoint: "microsoft/deberta-v3-large"
   fever_checkpoint: "microsoft/deberta-v3-large"
-  threshold: 0.75  # τ (tau) - optimal threshold to be tuned
+  threshold: 0.75  # τ (tau) - optimal threshold for MNLI fine-tuned models
   accept_min: 0.85  # Minimum factual precision for verified data collection (Exp6)
   claim_extraction:
     method: "spacy_svo"

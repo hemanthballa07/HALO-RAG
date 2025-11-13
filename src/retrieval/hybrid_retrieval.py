@@ -121,12 +121,20 @@ class HybridRetriever:
         dense_scores = dense_scores[0]
         dense_indices = dense_indices[0]
         
-        # Normalize dense scores to [0, 1]
-        dense_scores_norm = (dense_scores - dense_scores.min()) / (dense_scores.max() - dense_scores.min() + 1e-8)
-        
-        # Sparse retrieval (BM25)
+        # Sparse retrieval (BM25) - get scores for entire corpus
         query_tokenized = query.lower().split()
         bm25_scores = self.bm25.get_scores(query_tokenized)
+        
+        # Create full corpus-sized arrays for fusion
+        corpus_size = len(self.corpus)
+        dense_scores_full = np.zeros(corpus_size)
+        dense_scores_full[dense_indices] = dense_scores
+        
+        # Normalize dense scores to [0, 1]
+        if dense_scores.max() > dense_scores.min():
+            dense_scores_norm = (dense_scores_full - dense_scores_full.min()) / (dense_scores_full.max() - dense_scores_full.min() + 1e-8)
+        else:
+            dense_scores_norm = dense_scores_full
         
         # Normalize BM25 scores to [0, 1]
         if bm25_scores.max() > bm25_scores.min():
@@ -134,21 +142,23 @@ class HybridRetriever:
         else:
             bm25_scores_norm = bm25_scores
         
-        # Fusion: combine scores
+        # Fusion: combine scores (both arrays now have same shape: corpus_size)
         fusion_scores = (
             self.dense_weight * dense_scores_norm +
             self.sparse_weight * bm25_scores_norm
         )
         
-        # Get top-k by fusion score
+        # Get top-k by fusion score (limit to corpus size)
+        top_k = min(top_k, len(self.corpus))
         top_indices = np.argsort(fusion_scores)[::-1][:top_k]
         
         results = []
         for idx in top_indices:
             doc_id = int(idx)
-            doc = self.corpus[doc_id]
-            score = fusion_scores[idx] if return_scores else None
-            results.append((doc_id, doc, score))
+            if doc_id < len(self.corpus):  # Safety check
+                doc = self.corpus[doc_id]
+                score = fusion_scores[idx] if return_scores else None
+                results.append((doc_id, doc, score))
         
         return results
     

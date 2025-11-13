@@ -798,7 +798,7 @@ def save_stress_test_results(
                 baseline_results.get("hallucination_rate", 0.0), "",
                 baseline_results.get("exact_match", 0.0), baseline_results.get("f1_score", 0.0), ""
             ])
-        
+    
         # Verifier off results
         if verifier_off_results:
             writer.writerow([
@@ -965,7 +965,7 @@ def main():
         # Log retrieval degradation results
         for recall, results in retrieval_results.items():
             log_metrics(results, prefix=f"retrieval_degradation/recall_{recall}/")
-        
+    
         # Log baseline and verifier off
         if baseline_results:
             log_metrics(baseline_results, prefix="baseline/")

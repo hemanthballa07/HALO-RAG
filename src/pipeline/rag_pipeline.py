@@ -94,10 +94,12 @@ class SelfVerificationRAGPipeline:
         
         # Initialize verifier
         logger.info("Initializing entailment verifier...")
+        # Use MNLI fine-tuned model if available for better accuracy
         self.verifier = EntailmentVerifier(
             model_name=verifier_model,
             device=device,
-            threshold=entailment_threshold
+            threshold=entailment_threshold,
+            use_mnli_model=True  # Try to use MNLI fine-tuned model
         )
         
         # Initialize claim extractor

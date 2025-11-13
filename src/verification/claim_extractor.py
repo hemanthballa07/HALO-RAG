@@ -93,7 +93,17 @@ class ClaimExtractor:
             List of claim strings
         """
         triples = self.extract_svo_triples(text)
-        return [t["claim"] for t in triples]
+        claims = [t["claim"] for t in triples]
+        
+        # If no SVO triples found, treat the entire text as a claim
+        # This handles short answers like "late 1990s" or "singing and dancing"
+        if not claims and text.strip():
+            # Clean up the text and use it as a single claim
+            cleaned_text = text.strip()
+            if len(cleaned_text) > 0:
+                claims = [cleaned_text]
+        
+        return claims
     
     def extract_claims_with_context(
         self,

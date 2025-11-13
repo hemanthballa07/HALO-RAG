@@ -223,14 +223,20 @@ class EvaluationMetrics:
     def factual_recall(
         self,
         verification_results: List[Dict[str, any]],
-        ground_truth_claims: List[str]
+        ground_truth_claims: List[str],
+        retrieved_texts: List[str] = None,
+        verifier = None
     ) -> float:
         """
-        Compute Factual Recall: fraction of ground truth claims that are entailed.
+        Compute Factual Recall: fraction of ground truth claims that are entailed by the context.
+        
+        This verifies ground truth claims against the retrieved context to see if they're supported.
         
         Args:
-            verification_results: List of verification results
-            ground_truth_claims: List of ground truth claims
+            verification_results: List of verification results (for context, not used directly)
+            ground_truth_claims: List of ground truth claims to verify
+            retrieved_texts: List of retrieved context documents
+            verifier: Verifier instance to verify ground truth claims (optional)
         
         Returns:
             Factual recall score
@@ -238,7 +244,20 @@ class EvaluationMetrics:
         if len(ground_truth_claims) == 0:
             return 0.0
         
-        # Extract verified claims
+        # If we have a verifier and retrieved texts, verify ground truth claims against context
+        if verifier is not None and retrieved_texts is not None and len(retrieved_texts) > 0:
+            # Verify each ground truth claim against the retrieved context
+            combined_context = " ".join(retrieved_texts[:3])  # Use top 3 contexts
+            num_entailed = 0
+            for gt_claim in ground_truth_claims:
+                is_entailed, _ = verifier.is_entailed(gt_claim, combined_context)
+                if is_entailed:
+                    num_entailed += 1
+            recall = num_entailed / len(ground_truth_claims)
+            return recall
+        
+        # Fallback: Compare ground truth claims with verified generated claims
+        # This is less accurate but works if verifier is not available
         verified_claims = {
             r["claim"] for r in verification_results
             if r.get("is_entailed", False)
@@ -247,7 +266,7 @@ class EvaluationMetrics:
         ground_truth_set = set(ground_truth_claims)
         intersection = len(verified_claims & ground_truth_set)
         
-        recall = intersection / len(ground_truth_set)
+        recall = intersection / len(ground_truth_set) if len(ground_truth_set) > 0 else 0.0
         
         return recall
     
@@ -535,7 +554,8 @@ class EvaluationMetrics:
         generated: str,
         ground_truth: str,
         retrieved_texts: List[str],
-        ground_truth_claims: Optional[List[str]] = None
+        ground_truth_claims: Optional[List[str]] = None,
+        verifier = None
     ) -> Dict[str, float]:
         """
         Compute all metrics at once.
@@ -574,7 +594,9 @@ class EvaluationMetrics:
         metrics["factual_precision"] = self.factual_precision(verification_results)
         metrics["factual_recall"] = self.factual_recall(
             verification_results,
-            ground_truth_claims or []
+            ground_truth_claims or [],
+            retrieved_texts=retrieved_texts,
+            verifier=verifier
         )
         metrics["hallucination_rate"] = self.hallucination_rate(verification_results)
         
