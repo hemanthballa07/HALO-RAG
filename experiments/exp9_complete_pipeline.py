@@ -42,7 +42,7 @@ def run_complete_pipeline_experiment(
     relevant_docs: List[List[int]],
     corpus: List[str],
     config: Dict[str, Any],
-    fine_tuned_checkpoint: str,
+    fine_tuned_checkpoint: Optional[str] = None,
     enable_revision: bool = True,
     max_revision_iterations: int = 3,
     seed: int = 42,
@@ -76,24 +76,36 @@ def run_complete_pipeline_experiment(
     
     use_qlora = config.get("generation", {}).get("qlora", {}).get("training_enabled", False)
     
-    # Initialize pipeline (with fine-tuned generator + revision)
-    print("Initializing pipeline (fine-tuned generator + revision)...")
+    # Initialize pipeline (with optional fine-tuned generator + revision)
+    if fine_tuned_checkpoint:
+        print("Initializing pipeline (fine-tuned generator + revision)...")
+    else:
+        print("Initializing pipeline (base generator + revision)...")
     # Get verifier model from config
     verifier_model = config.get("verification", {}).get("entailment_model", "cross-encoder/nli-deberta-v3-base")
     verifier_threshold = config.get("verification", {}).get("threshold", 0.75)
     
-    pipeline = SelfVerificationRAGPipeline(
-        corpus=corpus,
-        device=device,
-        enable_revision=enable_revision,  # Enable revision strategy
-        max_revision_iterations=max_revision_iterations,
-        use_qlora=use_qlora,
-        generator_lora_checkpoint=fine_tuned_checkpoint,  # Load fine-tuned generator
-        verifier_model=verifier_model,
-        entailment_threshold=verifier_threshold
-    )
+    # Build pipeline kwargs
+    pipeline_kwargs = {
+        "corpus": corpus,
+        "device": device,
+        "enable_revision": enable_revision,  # Enable revision strategy
+        "max_revision_iterations": max_revision_iterations,
+        "use_qlora": use_qlora,
+        "verifier_model": verifier_model,
+        "entailment_threshold": verifier_threshold
+    }
     
-    print(f"✓ Pipeline initialized with fine-tuned checkpoint: {fine_tuned_checkpoint}")
+    # Only add checkpoint if provided
+    if fine_tuned_checkpoint:
+        pipeline_kwargs["generator_lora_checkpoint"] = fine_tuned_checkpoint
+    
+    pipeline = SelfVerificationRAGPipeline(**pipeline_kwargs)
+    
+    if fine_tuned_checkpoint:
+        print(f"✓ Pipeline initialized with fine-tuned checkpoint: {fine_tuned_checkpoint}")
+    else:
+        print(f"✓ Pipeline initialized with base (non-fine-tuned) generator")
     print(f"✓ Revision strategy: {'Enabled' if enable_revision else 'Disabled'}")
     
     # Initialize evaluator
@@ -280,8 +292,8 @@ def main():
     parser.add_argument("--no-wandb", action="store_true", help="Disable W&B logging")
     
     # Add exp9-specific args
-    parser.add_argument("--checkpoint", type=str, required=True,
-                       help="Path to fine-tuned generator checkpoint (e.g., checkpoints/exp6_iter3/)")
+    parser.add_argument("--checkpoint", type=str, default=None,
+                       help="Path to fine-tuned generator checkpoint (e.g., checkpoints/exp6_iter3/). If not provided, uses base (non-fine-tuned) model.")
     parser.add_argument("--max-revision-iterations", type=int, default=3,
                        help="Maximum revision iterations")
     parser.add_argument("--disable-revision", action="store_true",
@@ -381,7 +393,7 @@ def main():
         "seed": seed,
         "commit_hash": commit_hash,
         "timestamp": timestamp,
-        "checkpoint": args.checkpoint,
+        "checkpoint": args.checkpoint or "base_model",
         "enable_revision": not args.disable_revision,
         "max_revision_iterations": args.max_revision_iterations,
         "total_queries": len(queries),
