@@ -7,6 +7,7 @@ import torch
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from typing import List, Dict, Tuple, Optional
 import numpy as np
+import re
 
 
 class EntailmentVerifier:
@@ -64,7 +65,6 @@ class EntailmentVerifier:
         """
         # First, check if the raw claim (without formatting) appears in context
         # This handles direct answers like "Bohemond" that appear in context
-        import re
         claim_clean = claim.strip()
         claim_normalized_raw = re.sub(r'[^\w\s]', '', claim_clean.lower())
         context_normalized = re.sub(r'[^\w\s]', '', context.lower())
@@ -196,7 +196,6 @@ class EntailmentVerifier:
                 if query_lower.startswith('who'):
                     # Extract the subject from query if possible
                     # "Who was Robert's son?" -> "Robert's son"
-                    import re
                     # Try to extract the subject after "who is/was"
                     match = re.search(r'who\s+(?:is|was)\s+(.+?)\??$', query_lower)
                     if match:
