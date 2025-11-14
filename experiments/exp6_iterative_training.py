@@ -146,12 +146,29 @@ def fine_tune_iteration(
     
     # If model already has PEFT adapters (from previous checkpoint), use it directly
     # Otherwise, initialize trainer to add adapters
-    from peft import PeftModel
+    from peft import PeftModel, get_peft_model, LoraConfig, TaskType
     if isinstance(generator.model, PeftModel):
-        # Model already has PEFT adapters, use directly
+        # Model already has PEFT adapters from checkpoint
         model = generator.model
         # Set to training mode
         model.train()
+        # For iterative training, we need to ensure PEFT adapters are trainable
+        # The base model should be frozen, but PEFT adapters should have gradients
+        # PEFT library should handle this, but let's verify and fix if needed
+        trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        if trainable_params == 0:
+            logger.warning("No trainable parameters found in loaded PEFT model!")
+            logger.warning("This might indicate the checkpoint was saved incorrectly or model is frozen.")
+            # Try to enable training on PEFT adapters
+            model.enable_adapter_layers()
+            # Ensure adapter parameters are trainable
+            for name, param in model.named_parameters():
+                if "lora" in name.lower():
+                    param.requires_grad = True
+            trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+            logger.info(f"Enabled training on {trainable_params} parameters")
+        else:
+            logger.info(f"Model has {trainable_params} trainable parameters")
     else:
         # Initialize trainer to add adapters
         trainer = QLoRATrainer(
@@ -220,20 +237,38 @@ def fine_tune_iteration(
     # Training arguments
     from transformers import TrainingArguments, Trainer
     
+    # Ensure learning_rate is a float (YAML may parse scientific notation as string)
+    learning_rate = training_config.get("learning_rate", 2e-4)
+    if isinstance(learning_rate, str):
+        learning_rate = float(learning_rate)
+    
+    wandb_enabled = os.environ.get("WANDB_DISABLED") != "true" and bool(os.getenv("WANDB_API_KEY"))
+    
     training_args = TrainingArguments(
         output_dir=checkpoint_path,
-        num_train_epochs=training_config.get("num_epochs", 3),
-        per_device_train_batch_size=training_config.get("batch_size", 8),
-        gradient_accumulation_steps=training_config.get("gradient_accumulation_steps", 4),
-        learning_rate=training_config.get("learning_rate", 2e-4),
-        warmup_steps=training_config.get("warmup_steps", 100),
-        logging_steps=training_config.get("logging_steps", 100),
+        num_train_epochs=int(training_config.get("num_epochs", 3)),
+        per_device_train_batch_size=int(training_config.get("batch_size", 8)),
+        gradient_accumulation_steps=int(training_config.get("gradient_accumulation_steps", 4)),
+        learning_rate=learning_rate,
+        warmup_steps=int(training_config.get("warmup_steps", 100)),
+        logging_steps=int(training_config.get("logging_steps", 100)),
         save_strategy="epoch",
         save_total_limit=3,
         fp16=True,
-        report_to="wandb" if os.getenv("WANDB_API_KEY") else None,
+        report_to="wandb" if wandb_enabled else "none",
         run_name=f"exp6_iter{iteration}"
     )
+    
+    # Verify model is ready for training
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    if trainable_params == 0:
+        raise RuntimeError(
+            f"No trainable parameters found in model! "
+            f"This usually means the PEFT adapters are not properly configured for training. "
+            f"Check that the checkpoint was saved correctly and that PEFT adapters are enabled."
+        )
+    
+    logger.info(f"Starting training with {trainable_params} trainable parameters")
     
     # Trainer
     trainer = Trainer(
@@ -247,9 +282,16 @@ def fine_tune_iteration(
     # Train
     trainer.train()
     
-    # Save final model
+    # Save final model (ensure we're saving the PEFT adapters, not the full model)
+    # For PEFT models, save_pretrained saves only the adapter weights
     model.save_pretrained(checkpoint_path)
     generator.tokenizer.save_pretrained(checkpoint_path)
+    
+    # Verify checkpoint was saved correctly
+    logger.info(f"Checkpoint saved to {checkpoint_path}")
+    logger.info(f"Model type: {type(model).__name__}")
+    if isinstance(model, PeftModel):
+        logger.info(f"PEFT adapters saved. Model has {len(model.peft_config)} adapter(s)")
     
     logger.info(f"Fine-tuning complete. Checkpoint saved to {checkpoint_path}")
     
@@ -647,6 +689,10 @@ def main():
     
     args = parser.parse_args()
     
+    # Respect --no-wandb flag
+    if args.no_wandb:
+        os.environ["WANDB_DISABLED"] = "true"
+    
     # Load config
     config = load_config(args.config)
     
@@ -661,24 +707,64 @@ def main():
     if iterations is None:
         iterations = config.get("experiments", {}).get("exp6", {}).get("iterations", 3)
     
-    # Determine sample limit
-    sample_limit = args.limit
+    # Determine training limit (ONLY from exp6.train_limit config)
+    train_limit = config.get("experiments", {}).get("exp6", {}).get("train_limit")
+    if train_limit:
+        print(f"Training limit from config: {train_limit} examples")
+    else:
+        print("No training limit specified - using full training set")
+    
+    # Determine validation limit (from --limit arg, --dry-run, or datasets.sample_limit config)
+    val_limit = args.limit  # --limit controls evaluation/validation size
     if args.dry_run:
-        sample_limit = 100
-        print("⚠ DRY RUN MODE: Using 100 samples")
-    elif sample_limit is None:
-        sample_limit = config.get("experiments", {}).get("exp6", {}).get("train_limit")
+        val_limit = 100
+        print("⚠ DRY RUN MODE: Using 100 validation samples")
+    elif val_limit is None:
+        # Fall back to datasets.sample_limit config if --limit not provided
+        val_limit = config.get("datasets", {}).get("sample_limit")
     
     # Load datasets
     print("Loading datasets...")
-    train_examples = load_dataset_from_config(config, split="train")
-    val_examples = load_dataset_from_config(config, split="validation")
+    print("⚠ IMPORTANT: Exp6 uses 'train' split for fine-tuning and 'validation' split for evaluation")
+    print("   This ensures no data leakage between training and evaluation.")
+    train_examples = load_dataset_from_config(
+        config,
+        split="train",
+        limit=train_limit
+    )
+    val_examples = load_dataset_from_config(
+        config,
+        split="validation",
+        limit=val_limit
+    )
     
-    # Apply sample limit if specified
-    if sample_limit:
-        train_examples = train_examples[:sample_limit]
-        val_examples = val_examples[:min(sample_limit, len(val_examples))]
-        print(f"Limited to {len(train_examples)} train and {len(val_examples)} val examples")
+    # Verify splits are different (sanity check)
+    if len(train_examples) > 0 and len(val_examples) > 0:
+        train_ids = {ex["id"] for ex in train_examples[:100]}  # Check first 100
+        val_ids = {ex["id"] for ex in val_examples[:100]}
+        overlap = train_ids.intersection(val_ids)
+        if overlap:
+            print(f"⚠ WARNING: Found {len(overlap)} overlapping IDs between train and validation splits!")
+            print(f"   This indicates potential data leakage. Please check dataset loading.")
+        else:
+            print("✓ Verified: Train and validation splits have no overlapping examples (checked first 100)")
+    
+    # Apply training limit (only to training split)
+    if train_limit:
+        train_examples = train_examples[:train_limit]
+        print(f"Limited training to {len(train_examples)} examples (from exp6.train_limit config)")
+    
+    # Apply validation limit (only to validation split, if specified)
+    if val_limit:
+        val_examples = val_examples[:val_limit]
+        if args.dry_run:
+            print(f"Limited validation to {len(val_examples)} examples (dry-run mode)")
+        elif args.limit:
+            print(f"Limited validation to {len(val_examples)} examples (from --limit argument)")
+        else:
+            print(f"Limited validation to {len(val_examples)} examples (from datasets.sample_limit config)")
+    else:
+        print(f"Using full validation set: {len(val_examples)} examples")
             
     # Prepare for experiments
     train_queries, train_ground_truths, train_relevant_docs, corpus = prepare_for_experiments(train_examples)
@@ -704,7 +790,8 @@ def main():
                 "experiment": "exp6_iterative_training",
                 "dataset": dataset_name,
                 "iterations": iterations,
-                "sample_limit": sample_limit,
+                "train_limit": train_limit,
+                "val_limit": val_limit,
                 "seed": seed
             },
             enabled=True
@@ -714,7 +801,7 @@ def main():
         log_metadata(
             dataset_name=dataset_name,
             split="train+validation",
-            sample_limit=sample_limit,
+            sample_limit=train_limit,  # Log training limit
             commit_hash=commit_hash,
             timestamp=timestamp
             )
@@ -738,7 +825,8 @@ def main():
     results["metadata"] = {
         "dataset": dataset_name,
         "iterations": iterations,
-        "sample_limit": sample_limit,
+        "train_limit": train_limit,
+        "val_limit": val_limit,
         "seed": seed,
         "commit_hash": commit_hash,
         "timestamp": timestamp

@@ -43,6 +43,8 @@ def run_baseline_experiment(
     corpus: List[str],
     config: Dict[str, Any],
     seed: int = 42,
+    top_k_retrieve: int = 20,
+    top_k_rerank: int = 5,
     wandb_run: Optional[Any] = None
 ) -> Dict[str, Any]:
     """
@@ -65,21 +67,31 @@ def run_baseline_experiment(
     np.random.seed(seed)
     torch.manual_seed(seed)
     
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = "cuda"
     print(f"Using device: {device}")
+    
+    use_qlora = config.get("generation", {}).get("qlora", {}).get("training_enabled", False)
     
     # Initialize pipeline (baseline: no verification, no revision)
     print("Initializing pipeline (baseline: no verification)...")
+    # Get verifier model from config
+    verifier_model = config.get("verification", {}).get("entailment_model", "cross-encoder/nli-deberta-v3-base")
+    verifier_threshold = config.get("verification", {}).get("threshold", 0.75)
+    
     pipeline = SelfVerificationRAGPipeline(
         corpus=corpus,
         device=device,
         enable_revision=False,  # No revision for baseline
-        use_qlora=config.get("generation", {}).get("qlora", {}).get("training_enabled", False)
+        use_qlora=use_qlora,
+        verifier_model=verifier_model,
+        entailment_threshold=verifier_threshold
     )
     
-    # Disable verification for true baseline
-    # We'll still compute verification metrics but pipeline won't use them
-    pipeline.verifier.threshold = 0.0  # Accept all claims for baseline
+    # For baseline, we still want to compute verification metrics
+    # But we don't filter based on verification (no revision)
+    # Keep threshold at normal value (0.75) to get realistic metrics
+    # The baseline is "no revision", not "no verification"
+    # Verification still runs to compute factual precision/recall metrics
     
     # Initialize evaluator
     evaluator = EvaluationMetrics()
@@ -96,10 +108,40 @@ def run_baseline_experiment(
     )):
         try:
             # Generate answer (no verification filtering)
-            result = pipeline.generate(query, top_k_retrieve=20, top_k_rerank=5)
+            result = pipeline.generate(query, top_k_retrieve=top_k_retrieve, top_k_rerank=top_k_rerank)
             
             # Get retrieved texts for coverage calculation
             retrieved_texts = result.get("reranked_texts", result.get("retrieved_texts", []))
+            
+            # Extract claims from ground truth for factual recall calculation
+            ground_truth_claims = pipeline.claim_extractor.extract_claims(gt)
+            
+            # Extract claims from generated text (already extracted in pipeline, but get them)
+            generated_claims = result.get("claims", [])
+            if not generated_claims:
+                # Fallback: extract claims if not in result
+                generated_claims = pipeline.claim_extractor.extract_claims(result["generated_text"])
+            
+            # Format claims for MNLI model (as they are passed to the entailment verifier)
+            combined_context = result.get("context", "")
+            formatted_generated_claims = []
+            formatted_ground_truth_claims = []
+            
+            # Format generated claims
+            for claim in generated_claims:
+                formatted_claim = pipeline.verifier._format_claim_for_verification(claim, combined_context)
+                formatted_generated_claims.append({
+                    "original_claim": claim,
+                    "formatted_claim": formatted_claim
+                })
+            
+            # Format ground truth claims
+            for claim in ground_truth_claims:
+                formatted_claim = pipeline.verifier._format_claim_for_verification(claim, combined_context)
+                formatted_ground_truth_claims.append({
+                    "original_claim": claim,
+                    "formatted_claim": formatted_claim
+                })
             
             # Compute metrics
             metrics = evaluator.compute_all_metrics(
@@ -108,7 +150,9 @@ def run_baseline_experiment(
                 verification_results=result["verification_results"]["verification_results"],
                 generated=result["generated_text"],
                 ground_truth=gt,
-                retrieved_texts=retrieved_texts
+                retrieved_texts=retrieved_texts,
+                ground_truth_claims=ground_truth_claims,
+                verifier=pipeline.verifier  # Pass verifier for factual recall calculation
             )
             
             all_metrics.append(metrics)
@@ -116,6 +160,15 @@ def run_baseline_experiment(
                 "query": query,
                 "ground_truth": gt,
                 "generated": result["generated_text"],
+                "retrieved_texts": result.get("retrieved_texts", []),
+                "reranked_texts": result.get("reranked_texts", []),
+                "context": result.get("context", ""),
+                "generated_claims": generated_claims,
+                "ground_truth_claims": ground_truth_claims,
+                "formatted_generated_claims": formatted_generated_claims,
+                "formatted_ground_truth_claims": formatted_ground_truth_claims,
+                "verification_results": result.get("verification_results", {}),  # Add full verification results
+                "verified": result.get("verification_results", {}).get("verified", False),
                 "metrics": metrics
             })
             
@@ -128,29 +181,41 @@ def run_baseline_experiment(
                 log_metrics(avg_metrics, step=idx + 1, prefix="baseline/")
         
         except Exception as e:
+            import traceback
             print(f"Error processing query {idx}: {e}")
+            print(f"Query: {query[:100]}...")
+            traceback.print_exc()
             continue
     
     # Aggregate metrics
     print("\nAggregating metrics...")
     metric_names = [
-        "recall@20", "coverage", "factual_precision", 
+        "recall@20", "coverage", "factual_precision", "factual_recall",
         "hallucination_rate", "verified_f1", "f1_score",
         "exact_match", "bleu4", "rouge_l", "abstention_rate",
         "fever_score"
     ]
     
     aggregated = {}
+    if not all_metrics:
+        print("⚠ Warning: No metrics collected. Check query processing errors above.")
+        return {
+            "results": results,
+            "aggregated_metrics": {},
+            "num_processed": len(results),
+            "num_errors": len(queries) - len(results)
+        }
+    
     for metric_name in metric_names:
-        if metric_name in all_metrics[0]:
+        if all_metrics and metric_name in all_metrics[0]:
             scores = [m[metric_name] for m in all_metrics if metric_name in m]
             if scores:
-        aggregated[metric_name] = {
+                aggregated[metric_name] = {
                     "mean": float(np.mean(scores)),
                     "std": float(np.std(scores)),
                     "min": float(np.min(scores)),
                     "max": float(np.max(scores)),
-            "scores": scores
+                    "scores": scores
                 }
     
     # Log final metrics to W&B
@@ -179,6 +244,7 @@ def save_results(results: Dict[str, Any], output_dir: str = "results/metrics"):
     # Save CSV
     csv_path = os.path.join(output_dir, "exp1_baseline.csv")
     aggregated = results["aggregated_metrics"]
+    metadata = results.get("metadata", {})
     
     with open(csv_path, 'w', newline='') as f:
         writer = csv.writer(f)
@@ -191,16 +257,48 @@ def save_results(results: Dict[str, Any], output_dir: str = "results/metrics"):
                 f"{stats['min']:.4f}",
                 f"{stats['max']:.4f}"
             ])
+        # Add metadata rows
+        writer.writerow([])  # Empty row
+        writer.writerow(["metadata", "value", "", "", ""])
+        writer.writerow(["corpus_size", metadata.get("corpus_size", "N/A"), "", "", ""])
+        writer.writerow(["top_k_retrieve", metadata.get("top_k_retrieve", "N/A"), "", "", ""])
+        writer.writerow(["top_k_rerank", metadata.get("top_k_rerank", "N/A"), "", "", ""])
+        writer.writerow(["corpus_to_k_ratio", f"{metadata.get('corpus_to_k_ratio', 0):.2f}", "", "", ""])
     print(f"✓ Saved metrics to {csv_path}")
 
 
 def main():
     """Main experiment function."""
     # Parse arguments
-    args = parse_experiment_args(description="Experiment 1: Baseline Comparison")
+    parser = argparse.ArgumentParser(description="Experiment 1: Baseline Comparison")
+    
+    # Add standard experiment args
+    parser.add_argument("--config", type=str, default="config/config.yaml", help="Path to config file")
+    parser.add_argument("--split", type=str, default="validation", choices=["train", "validation", "test"], help="Dataset split to use")
+    parser.add_argument("--limit", type=int, default=None, help="Limit number of examples (for testing). Overrides config.")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed")
+    parser.add_argument("--dry-run", action="store_true", help="Dry run with 20-50 samples for quick testing")
+    parser.add_argument("--no-wandb", action="store_true", help="Disable W&B logging")
+    
+    # Add top-k arguments
+    parser.add_argument("--top-k-retrieve", type=int, default=None, help="Number of documents to retrieve (default: from config)")
+    parser.add_argument("--top-k-rerank", type=int, default=None, help="Number of documents to rerank (default: from config)")
+    
+    args = parser.parse_args()
+    
+    # Respect --no-wandb flag
+    if args.no_wandb:
+        os.environ["WANDB_DISABLED"] = "true"
     
     # Load config
     config = load_config(args.config)
+    
+    # Get top-k values (from args or config)
+    # Priority: CLI args > config.retrieval.top_k_retrieve/rerank > config.retrieval.fusion/reranker.top_k
+    top_k_retrieve = args.top_k_retrieve if args.top_k_retrieve is not None else config.get("retrieval", {}).get("top_k_retrieve") or config.get("retrieval", {}).get("fusion", {}).get("top_k", 20)
+    top_k_rerank = args.top_k_rerank if args.top_k_rerank is not None else config.get("retrieval", {}).get("top_k_rerank") or config.get("retrieval", {}).get("reranker", {}).get("top_k", 5)
+    
+    print(f"Retrieval settings: top_k_retrieve={top_k_retrieve}, top_k_rerank={top_k_rerank}")
     
     # Set random seed
     seed = args.seed
@@ -218,6 +316,11 @@ def main():
     
     # Load dataset
     print("Loading dataset...")
+    if args.split != "validation":
+        print(f"⚠ WARNING: Using '{args.split}' split. For fair comparison with Exp6 and Exp9, use 'validation' split.")
+        print("   Exp6 uses 'train' split for fine-tuning, so evaluation should use 'validation' to avoid data leakage.")
+    else:
+        print("✓ Using 'validation' split (correct for evaluation, avoids data leakage with Exp6 training data)")
     examples = load_dataset_from_config(config, split=args.split)
     
     # Apply sample limit if specified
@@ -269,6 +372,8 @@ def main():
         corpus=corpus,
         config=config,
         seed=seed,
+        top_k_retrieve=top_k_retrieve,
+        top_k_rerank=top_k_rerank,
         wandb_run=wandb_run
     )
     
@@ -280,6 +385,10 @@ def main():
         "seed": seed,
         "commit_hash": commit_hash,
         "timestamp": timestamp,
+        "top_k_retrieve": top_k_retrieve,
+        "top_k_rerank": top_k_rerank,
+        "corpus_size": len(corpus),
+        "corpus_to_k_ratio": len(corpus) / top_k_retrieve if top_k_retrieve > 0 else 0,
         "total_queries": len(queries),
         "processed_queries": results["processed_queries"]
         }

@@ -33,9 +33,9 @@ def parse_experiment_args(
     parser.add_argument(
         "--split",
         type=str,
-        default="train",
+        default="validation",  # Changed from "train" to "validation" for evaluation experiments
         choices=["train", "validation", "test"],
-        help="Dataset split to use"
+        help="Dataset split to use (default: validation for evaluation experiments)"
     )
     
     parser.add_argument(

@@ -278,7 +278,7 @@ def run_tau_sweep_stress_test(
     np.random.seed(seed)
     torch.manual_seed(seed)
     
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = "cuda"
     print(f"Using device: {device}")
     
     if limit:
@@ -369,7 +369,7 @@ def run_retrieval_degradation_test(
     np.random.seed(seed)
     torch.manual_seed(seed)
     
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = "cuda"
     print(f"Using device: {device}")
     
     if limit:
@@ -461,7 +461,7 @@ def run_verifier_off_test(
     np.random.seed(seed)
     torch.manual_seed(seed)
     
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = "cuda"
     print(f"Using device: {device}")
     
     if limit:
@@ -545,7 +545,7 @@ def run_baseline_test(
     np.random.seed(seed)
     torch.manual_seed(seed)
     
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = "cuda"
     print(f"Using device: {device}")
     
     if limit:
@@ -798,7 +798,7 @@ def save_stress_test_results(
                 baseline_results.get("hallucination_rate", 0.0), "",
                 baseline_results.get("exact_match", 0.0), baseline_results.get("f1_score", 0.0), ""
             ])
-        
+    
         # Verifier off results
         if verifier_off_results:
             writer.writerow([
@@ -965,7 +965,7 @@ def main():
         # Log retrieval degradation results
         for recall, results in retrieval_results.items():
             log_metrics(results, prefix=f"retrieval_degradation/recall_{recall}/")
-        
+    
         # Log baseline and verifier off
         if baseline_results:
             log_metrics(baseline_results, prefix="baseline/")
