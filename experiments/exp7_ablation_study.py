@@ -207,7 +207,7 @@ def run_ablation_study(
     np.random.seed(seed)
     torch.manual_seed(seed)
     
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = "cuda"
     print(f"Using device: {device}")
     
     # Limit examples if specified

@@ -44,7 +44,7 @@ def run_revision_strategies_experiment(
         corpus: List of documents
         config: Configuration dictionary
     """
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = "cuda"
     
     # Initialize evaluator
     evaluator = EvaluationMetrics()

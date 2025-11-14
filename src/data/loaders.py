@@ -469,7 +469,11 @@ def prepare_for_experiments(
     return queries, ground_truths, relevant_docs, corpus
 
 
-def load_dataset_from_config(config: Dict[str, Any], split: str = "train") -> List[Dict[str, Any]]:
+def load_dataset_from_config(
+    config: Dict[str, Any],
+    split: str = "train",
+    limit: Optional[int] = None
+) -> List[Dict[str, Any]]:
     """
     Load dataset from configuration.
     
@@ -484,6 +488,8 @@ def load_dataset_from_config(config: Dict[str, Any], split: str = "train") -> Li
     dataset_config = config.get("datasets", {})
     active_dataset = dataset_config.get("active", "squad_v2")
     sample_limit = dataset_config.get("sample_limit")
+    # Allow caller to override sample limit (e.g., separate train/val limits)
+    effective_limit = limit if limit is not None else sample_limit
     
     # Get cache directory
     paths_config = config.get("paths", {})
@@ -501,7 +507,7 @@ def load_dataset_from_config(config: Dict[str, Any], split: str = "train") -> Li
     examples = load_dataset(
         dataset_name=active_dataset,
         split=split_name,
-        limit=sample_limit,
+        limit=effective_limit,
         cache_dir=cache_dir
     )
     

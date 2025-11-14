@@ -49,6 +49,7 @@ class FLANT5Generator:
         self.use_qlora = use_qlora
         
         # Configure quantization if using QLoRA
+        quantization_config = None
         if use_qlora:
             quantization_config = BitsAndBytesConfig(
                 load_in_4bit=True,
@@ -56,14 +57,13 @@ class FLANT5Generator:
                 bnb_4bit_compute_dtype=torch.float16,
                 bnb_4bit_use_double_quant=True
             )
-        else:
-            quantization_config = None
         
         # Load tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         
         # Load base model
-        if use_qlora:
+        if use_qlora and quantization_config is not None:
+            # QLoRA path
             self.model = AutoModelForSeq2SeqLM.from_pretrained(
                 model_name,
                 quantization_config=quantization_config,
@@ -71,10 +71,11 @@ class FLANT5Generator:
                 torch_dtype=torch.float16
             )
         else:
+            # Full precision path
             self.model = AutoModelForSeq2SeqLM.from_pretrained(
-                model_name,
-                device_map="auto"
+                model_name
             )
+            self.model.to(device)
         
         # Configure LoRA
         if lora_checkpoint:
@@ -82,7 +83,8 @@ class FLANT5Generator:
             # For iterative training, keep as PEFT model (don't merge)
             self.model = PeftModel.from_pretrained(
                 self.model,
-                lora_checkpoint
+                lora_checkpoint,
+                is_trainable=True  # Ensure adapters are trainable for continued training
             )
             # Don't merge - keep as PEFT model for further fine-tuning
         else:
@@ -112,7 +114,8 @@ class FLANT5Generator:
         top_p: float = 0.95,
         top_k: int = 50,
         do_sample: bool = True,
-        num_beams: int = 1
+        num_beams: int = 1,
+        verified_claims: Optional[List[str]] = None
     ) -> str:
         """
         Generate answer given query and context.
@@ -126,10 +129,16 @@ class FLANT5Generator:
             top_k: Top-k sampling
             do_sample: Whether to use sampling
             num_beams: Number of beams for beam search
+            verified_claims: Optional list of verified claims to incorporate into prompt
         
         Returns:
             Generated text
         """
+        # If verified claims are provided, add them to the context as constraints
+        if verified_claims and len(verified_claims) > 0:
+            verified_text = " Verified facts that must be included: " + " | ".join(verified_claims)
+            context = context + verified_text
+        
         # Format input: "Question: {query} Context: {context} Answer:"
         input_text = f"Question: {query} Context: {context} Answer:"
         
