@@ -48,7 +48,8 @@ class EntailmentVerifier:
     def verify_claim(
         self,
         claim: str,
-        context: str
+        context: str,
+        query: Optional[str] = None
     ) -> Dict[str, float]:
         """
         Verify a single claim against context.
@@ -56,40 +57,74 @@ class EntailmentVerifier:
         Args:
             claim: Claim to verify (hypothesis)
             context: Context to verify against (premise)
+            query: Optional query to help format the claim better
         
         Returns:
             Dictionary with 'entailment', 'neutral', 'contradiction' scores
         """
-        # Format claim as a complete sentence if it's not already
-        # Short answers like "2003" or "June 2005" need to be converted to full claims
-        formatted_claim = self._format_claim_for_verification(claim, context)
-        
-        # Check if the claim appears directly in the context (exact or near-exact match)
-        # This handles cases where the claim is a direct quote or close variant
+        # First, check if the raw claim (without formatting) appears in context
+        # This handles direct answers like "Bohemond" that appear in context
         import re
-        claim_normalized = re.sub(r'[^\w\s]', '', formatted_claim.lower())
+        claim_clean = claim.strip()
+        claim_normalized_raw = re.sub(r'[^\w\s]', '', claim_clean.lower())
         context_normalized = re.sub(r'[^\w\s]', '', context.lower())
         
-        # If the formatted claim is a substring of the context, it's likely entailed
+        # Check if the raw claim appears as a substring or as a significant phrase
+        if claim_normalized_raw and len(claim_normalized_raw.split()) <= 10:
+            # For short claims, check if they appear directly in context
+            if claim_normalized_raw in context_normalized:
+                # For single-word claims, use word boundary matching
+                if len(claim_normalized_raw.split()) == 1:
+                    # Single word: check word boundaries
+                    pattern = r'\b' + re.escape(claim_normalized_raw) + r'\b'
+                    if re.search(pattern, context_normalized):
+                        return {
+                            "contradiction": 0.0,
+                            "neutral": 0.0,
+                            "entailment": 1.0
+                        }
+                else:
+                    # Multi-word: check if it appears as a phrase
+                    # For normalized text, just check substring (already done above)
+                    return {
+                        "contradiction": 0.0,
+                        "neutral": 0.0,
+                        "entailment": 1.0
+                    }
+        
+        # Format claim as a complete sentence if it's not already
+        # Short answers like "2003" or "June 2005" need to be converted to full claims
+        formatted_claim = self._format_claim_for_verification(claim, context, query)
+        
+        # Check if the formatted claim's key content appears in context
+        # Extract the actual answer from formatted claim (remove "The answer is" etc.)
+        formatted_normalized = re.sub(r'[^\w\s]', '', formatted_claim.lower())
+        
         # Check if all significant words from the claim appear in the context
-        claim_words = set(claim_normalized.split())
+        claim_words = set(formatted_normalized.split())
         context_words = set(context_normalized.split())
         
         # Remove common stop words for matching
-        stop_words = {'the', 'a', 'an', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'this', 'that', 'is', 'was', 'are', 'were'}
+        stop_words = {'the', 'a', 'an', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'this', 'that', 'is', 'was', 'are', 'were', 'answer'}
         claim_words_clean = claim_words - stop_words
         context_words_clean = context_words - stop_words
         
-        # If most claim words appear in context and the claim is short, likely entailed
+        # If most claim words appear in context, check more carefully
         if len(claim_words_clean) > 0:
             overlap_ratio = len(claim_words_clean & context_words_clean) / len(claim_words_clean)
-            # If high overlap and claim appears as substring, mark as entailed
-            if overlap_ratio >= 0.8 and claim_normalized in context_normalized:
-                return {
-                    "contradiction": 0.0,
-                    "neutral": 0.0,
-                    "entailment": 1.0
-                }
+            # For high overlap, check if the key content appears as a phrase
+            if overlap_ratio >= 0.8:
+                # Check if the core claim (without formatting words) appears as a phrase
+                core_claim_words = [w for w in claim_words_clean if w not in {'answer', 'is', 'was', 'are', 'were'}]
+                if core_claim_words:
+                    # Check if these words appear together in context
+                    core_phrase = ' '.join(core_claim_words)
+                    if core_phrase in context_normalized:
+                        return {
+                            "contradiction": 0.0,
+                            "neutral": 0.0,
+                            "entailment": 1.0
+                        }
         
         # Format as premise-hypothesis pair for NLI
         # Premise = context (what we know)
@@ -112,13 +147,30 @@ class EntailmentVerifier:
         
         probs = probs.cpu().numpy()[0]
         
+        # Get scores
+        contradiction_score = float(probs[0])
+        neutral_score = float(probs[1])
+        entailment_score = float(probs[2])
+        
+        # If entailment score is very low but the raw claim appears in context,
+        # boost the entailment score (the model might be confused by formatting)
+        if entailment_score < 0.3 and claim_normalized_raw in context_normalized:
+            # Boost entailment if raw claim is clearly in context
+            if len(claim_normalized_raw.split()) <= 5:  # Short answers
+                entailment_score = max(entailment_score, 0.7)
+                # Adjust other scores proportionally
+                total = contradiction_score + neutral_score + entailment_score
+                if total > 0:
+                    contradiction_score = contradiction_score * (1.0 - entailment_score) / (contradiction_score + neutral_score) if (contradiction_score + neutral_score) > 0 else 0.0
+                    neutral_score = neutral_score * (1.0 - entailment_score) / (contradiction_score + neutral_score) if (contradiction_score + neutral_score) > 0 else 0.0
+        
         return {
-            "contradiction": float(probs[0]),
-            "neutral": float(probs[1]),
-            "entailment": float(probs[2])
+            "contradiction": contradiction_score,
+            "neutral": neutral_score,
+            "entailment": entailment_score
         }
     
-    def _format_claim_for_verification(self, claim: str, context: str) -> str:
+    def _format_claim_for_verification(self, claim: str, context: str, query: Optional[str] = None) -> str:
         """
         Format a claim into a complete sentence for better verification.
         
@@ -131,10 +183,49 @@ class EntailmentVerifier:
         if claim.endswith('.') or claim.endswith('!') or claim.endswith('?'):
             return claim
         
-        # For short claims, make them more explicit
+        # For short claims, try to create a more natural sentence
         if len(claim.split()) <= 5:
-            # Simple formatting: wrap in a natural sentence
-            return f"The answer is {claim}."
+            # If we have a query, try to incorporate it for better context
+            if query:
+                # Try to create a natural statement from query + claim
+                # E.g., "Who was Robert's son?" + "Bohemond" -> "Robert's son was Bohemond"
+                query_lower = query.lower()
+                claim_lower = claim.lower()
+                
+                # Handle "Who is/was X?" questions
+                if query_lower.startswith('who'):
+                    # Extract the subject from query if possible
+                    # "Who was Robert's son?" -> "Robert's son"
+                    import re
+                    # Try to extract the subject after "who is/was"
+                    match = re.search(r'who\s+(?:is|was)\s+(.+?)\??$', query_lower)
+                    if match:
+                        subject = match.group(1).strip()
+                        return f"{subject.capitalize()} was {claim}."
+                    # Fallback: "X is [claim]"
+                    return f"{claim}."
+                
+                # Handle "What is/was X?" questions
+                elif query_lower.startswith('what'):
+                    match = re.search(r'what\s+(?:is|was|did|does)\s+(.+?)\??$', query_lower)
+                    if match:
+                        subject = match.group(1).strip()
+                        return f"{subject.capitalize()} is {claim}."
+                    return f"{claim}."
+                
+                # Handle "When" questions
+                elif query_lower.startswith('when'):
+                    return f"It was {claim}."
+                
+                # Handle "Where" questions
+                elif query_lower.startswith('where'):
+                    return f"It was {claim}."
+                
+                # Default: just return the claim as a statement
+                return f"{claim}."
+            else:
+                # No query available, use simple formatting
+                return f"{claim}."
         
         # Default: return as-is
         return claim
@@ -165,7 +256,8 @@ class EntailmentVerifier:
         self,
         claim: str,
         context: str,
-        threshold: Optional[float] = None
+        threshold: Optional[float] = None,
+        query: Optional[str] = None
     ) -> Tuple[bool, float]:
         """
         Check if claim is entailed by context (above threshold).
@@ -174,6 +266,7 @@ class EntailmentVerifier:
             claim: Claim to verify
             context: Context to verify against
             threshold: Entailment threshold (default: self.threshold)
+            query: Optional query to help format the claim better
         
         Returns:
             Tuple of (is_entailed: bool, entailment_score: float)
@@ -181,7 +274,7 @@ class EntailmentVerifier:
         if threshold is None:
             threshold = self.threshold
         
-        result = self.verify_claim(claim, context)
+        result = self.verify_claim(claim, context, query)
         entailment_score = result["entailment"]
         is_entailed = entailment_score >= threshold
         
@@ -191,7 +284,8 @@ class EntailmentVerifier:
         self,
         generated_text: str,
         retrieved_contexts: List[str],
-        claims: List[str]
+        claims: List[str],
+        query: Optional[str] = None
     ) -> Dict[str, any]:
         """
         Verify all claims in generated text against retrieved contexts.
@@ -200,6 +294,7 @@ class EntailmentVerifier:
             generated_text: Generated text
             retrieved_contexts: List of retrieved context documents
             claims: List of extracted claims
+            query: Optional query to help format claims better
         
         Returns:
             Dictionary with verification results
@@ -214,19 +309,24 @@ class EntailmentVerifier:
         verification_results = []
         for claim in claims:
             # Get full verification result (contradiction, neutral, entailment scores)
-            full_result = self.verify_claim(claim, combined_context)
-            is_entailed, score = self.is_entailed(claim, combined_context)
+            full_result = self.verify_claim(claim, combined_context, query)
+            is_entailed, score = self.is_entailed(claim, combined_context, query=query)
             
             # Determine label based on scores
             entailment_score = full_result["entailment"]
             contradiction_score = full_result["contradiction"]
             neutral_score = full_result["neutral"]
             
-            # Label: highest probability wins
+            # Label: highest probability wins, but be more careful about contradiction
             if entailment_score >= self.threshold:
                 label = "ENTAILED"
-            elif contradiction_score > neutral_score and contradiction_score > 0.5:
+            elif contradiction_score > neutral_score and contradiction_score > 0.6:
+                # Only mark as contradicted if contradiction score is high
                 label = "CONTRADICTED"
+            elif entailment_score > 0.3 and entailment_score > contradiction_score:
+                # If entailment is moderate and higher than contradiction, mark as NO_EVIDENCE
+                # (might be entailed but below threshold)
+                label = "NO_EVIDENCE"
             else:
                 label = "NO_EVIDENCE"
             

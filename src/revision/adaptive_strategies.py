@@ -105,7 +105,7 @@ class AdaptiveRevisionStrategy:
             strategy = RevisionStrategy(self.fixed_strategy)
         else:
             # Use dynamic selection based on entailment rate
-            strategy = self._select_strategy(verification_results, iteration)
+        strategy = self._select_strategy(verification_results, iteration)
         
         if strategy == RevisionStrategy.RE_RETRIEVAL:
             return self._re_retrieval_strategy(

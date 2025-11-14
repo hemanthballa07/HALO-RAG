@@ -195,7 +195,8 @@ class SelfVerificationRAGPipeline:
         verification_results = self.verifier.verify_generation(
             generated_text,
             reranked_texts,
-            claims
+            claims,
+            query=query  # Pass query to help with claim formatting
         )
         
         # Step 6: Adaptive revision (if enabled and verification failed)
@@ -229,8 +230,8 @@ class SelfVerificationRAGPipeline:
                         verification_results=verification_results,
                         retrieval_fn=lambda q, top_k=top_k_retrieve: self.retriever.retrieve(q, top_k=top_k),
                         generation_fn=lambda q, ctx, **kwargs: self.generator.generate(q, ctx, **kwargs),
-                        verification_fn=lambda gen, ctxs, clms: self.verifier.verify_generation(
-                            gen, ctxs, clms
+                        verification_fn=lambda gen, ctxs, clms, q=query: self.verifier.verify_generation(
+                            gen, ctxs, clms, query=q
                         ),
                         claim_extractor_fn=lambda text: self.claim_extractor.extract_claims(text),
                         iteration=iteration,
