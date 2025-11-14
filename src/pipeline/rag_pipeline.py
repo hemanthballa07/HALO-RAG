@@ -42,7 +42,8 @@ class SelfVerificationRAGPipeline:
         use_qlora: bool = True,
         generator_lora_checkpoint: Optional[str] = None,
         enable_revision: bool = True,
-        max_revision_iterations: int = 3
+        max_revision_iterations: int = 3,
+        **kwargs
     ):
         """
         Initialize Self-Verification RAG pipeline.
@@ -107,8 +108,17 @@ class SelfVerificationRAGPipeline:
         # Initialize revision strategy
         if enable_revision:
             logger.info("Initializing adaptive revision strategy...")
+            # Get revision config from kwargs if provided, otherwise use defaults
+            revision_config = kwargs.get("revision_config", {})
+            strategy_selection_mode = revision_config.get("strategy_selection_mode", "dynamic")
+            fixed_strategy = revision_config.get("fixed_strategy", None)
+            strategies = revision_config.get("strategies", None)
+            
             self.revision_strategy = AdaptiveRevisionStrategy(
-                max_iterations=max_revision_iterations
+                max_iterations=max_revision_iterations,
+                strategies=strategies,
+                strategy_selection_mode=strategy_selection_mode,
+                fixed_strategy=fixed_strategy
             )
         else:
             self.revision_strategy = None

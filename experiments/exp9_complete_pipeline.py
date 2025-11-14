@@ -87,6 +87,9 @@ def run_complete_pipeline_experiment(
     verifier_model = config.get("verification", {}).get("entailment_model", "cross-encoder/nli-deberta-v3-base")
     verifier_threshold = config.get("verification", {}).get("threshold", 0.75)
     
+    # Get revision config
+    revision_config = config.get("revision", {})
+    
     # Build pipeline kwargs
     pipeline_kwargs = {
         "corpus": corpus,
@@ -95,7 +98,12 @@ def run_complete_pipeline_experiment(
         "max_revision_iterations": max_revision_iterations,
         "use_qlora": use_qlora,
         "verifier_model": verifier_model,
-        "entailment_threshold": verifier_threshold
+        "entailment_threshold": verifier_threshold,
+        "revision_config": {
+            "strategy_selection_mode": revision_config.get("strategy_selection_mode", "dynamic"),
+            "fixed_strategy": revision_config.get("fixed_strategy", None),
+            "strategies": revision_config.get("strategies", None)
+        }
     }
     
     # Only add checkpoint if provided
@@ -109,6 +117,13 @@ def run_complete_pipeline_experiment(
     else:
         print(f"✓ Pipeline initialized with base (non-fine-tuned) generator")
     print(f"✓ Revision strategy: {'Enabled' if enable_revision else 'Disabled'}")
+    if enable_revision:
+        strategy_mode = revision_config.get("strategy_selection_mode", "dynamic")
+        if strategy_mode == "fixed":
+            fixed_strat = revision_config.get("fixed_strategy", "N/A")
+            print(f"✓ Strategy selection mode: {strategy_mode} (using: {fixed_strat})")
+        else:
+            print(f"✓ Strategy selection mode: {strategy_mode} (adaptive based on entailment rate)")
     
     # Initialize evaluator
     evaluator = EvaluationMetrics()
@@ -291,6 +306,8 @@ def save_results(results: Dict[str, Any], output_dir: str = "results/metrics"):
         writer.writerow(["top_k_retrieve", metadata.get("top_k_retrieve", "N/A"), "", "", ""])
         writer.writerow(["top_k_rerank", metadata.get("top_k_rerank", "N/A"), "", "", ""])
         writer.writerow(["corpus_to_k_ratio", f"{metadata.get('corpus_to_k_ratio', 0):.2f}", "", "", ""])
+        writer.writerow(["strategy_selection_mode", metadata.get("strategy_selection_mode", "N/A"), "", "", ""])
+        writer.writerow(["fixed_strategy", metadata.get("fixed_strategy", "N/A"), "", "", ""])
     print(f"✓ Saved metrics to {csv_path}")
 
 
@@ -329,8 +346,9 @@ def main():
     config = load_config(args.config)
     
     # Get top-k values (from args or config)
-    top_k_retrieve = args.top_k_retrieve if args.top_k_retrieve is not None else config.get("retrieval", {}).get("fusion", {}).get("top_k", 20)
-    top_k_rerank = args.top_k_rerank if args.top_k_rerank is not None else config.get("retrieval", {}).get("reranker", {}).get("top_k", 5)
+    # Priority: CLI args > config.retrieval.top_k_retrieve/rerank > config.retrieval.fusion/reranker.top_k
+    top_k_retrieve = args.top_k_retrieve if args.top_k_retrieve is not None else config.get("retrieval", {}).get("top_k_retrieve") or config.get("retrieval", {}).get("fusion", {}).get("top_k", 20)
+    top_k_rerank = args.top_k_rerank if args.top_k_rerank is not None else config.get("retrieval", {}).get("top_k_rerank") or config.get("retrieval", {}).get("reranker", {}).get("top_k", 5)
     
     print(f"Retrieval settings: top_k_retrieve={top_k_retrieve}, top_k_rerank={top_k_rerank}")
     
@@ -418,6 +436,7 @@ def main():
     )
     
     # Add metadata to results
+    revision_config = config.get("revision", {})
     results["metadata"] = {
         "dataset": dataset_name,
         "split": args.split,
@@ -428,6 +447,8 @@ def main():
         "checkpoint": args.checkpoint or "base_model",
         "enable_revision": not args.disable_revision,
         "max_revision_iterations": args.max_revision_iterations,
+        "strategy_selection_mode": revision_config.get("strategy_selection_mode", "dynamic"),
+        "fixed_strategy": revision_config.get("fixed_strategy", None),
         "top_k_retrieve": top_k_retrieve,
         "top_k_rerank": top_k_rerank,
         "corpus_size": len(corpus),

@@ -22,16 +22,22 @@ class AdaptiveRevisionStrategy:
     def __init__(
         self,
         max_iterations: int = 3,
-        strategies: List[str] = None
+        strategies: List[str] = None,
+        strategy_selection_mode: str = "dynamic",
+        fixed_strategy: str = None
     ):
         """
         Initialize adaptive revision strategy.
         
         Args:
             max_iterations: Maximum revision iterations
-            strategies: List of strategy names to use
+            strategies: List of strategy names to use (for dynamic mode)
+            strategy_selection_mode: "dynamic" (based on entailment rate) or "fixed" (use specific strategy)
+            fixed_strategy: Strategy to use if mode is "fixed" (e.g., "re_retrieval", "constrained_generation", "claim_by_claim")
         """
         self.max_iterations = max_iterations
+        self.strategy_selection_mode = strategy_selection_mode
+        self.fixed_strategy = fixed_strategy
         
         if strategies is None:
             strategies = [
@@ -41,6 +47,13 @@ class AdaptiveRevisionStrategy:
             ]
         
         self.strategies = strategies
+        
+        # Validate fixed_strategy if mode is fixed
+        if strategy_selection_mode == "fixed":
+            if fixed_strategy is None:
+                raise ValueError("fixed_strategy must be specified when strategy_selection_mode is 'fixed'")
+            if fixed_strategy not in ["re_retrieval", "constrained_generation", "claim_by_claim"]:
+                raise ValueError(f"Invalid fixed_strategy: {fixed_strategy}. Must be one of: re_retrieval, constrained_generation, claim_by_claim")
     
     def revise(
         self,
@@ -87,7 +100,12 @@ class AdaptiveRevisionStrategy:
             return initial_generation, verification_results, {"strategy_name": "none", "prompt_used": None}
         
         # Determine which strategy to use
-        strategy = self._select_strategy(verification_results, iteration)
+        if self.strategy_selection_mode == "fixed":
+            # Use fixed strategy from config
+            strategy = RevisionStrategy(self.fixed_strategy)
+        else:
+            # Use dynamic selection based on entailment rate
+            strategy = self._select_strategy(verification_results, iteration)
         
         if strategy == RevisionStrategy.RE_RETRIEVAL:
             return self._re_retrieval_strategy(

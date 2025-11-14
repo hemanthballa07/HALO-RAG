@@ -294,8 +294,9 @@ def main():
     config = load_config(args.config)
     
     # Get top-k values (from args or config)
-    top_k_retrieve = args.top_k_retrieve if args.top_k_retrieve is not None else config.get("retrieval", {}).get("fusion", {}).get("top_k", 20)
-    top_k_rerank = args.top_k_rerank if args.top_k_rerank is not None else config.get("retrieval", {}).get("reranker", {}).get("top_k", 5)
+    # Priority: CLI args > config.retrieval.top_k_retrieve/rerank > config.retrieval.fusion/reranker.top_k
+    top_k_retrieve = args.top_k_retrieve if args.top_k_retrieve is not None else config.get("retrieval", {}).get("top_k_retrieve") or config.get("retrieval", {}).get("fusion", {}).get("top_k", 20)
+    top_k_rerank = args.top_k_rerank if args.top_k_rerank is not None else config.get("retrieval", {}).get("top_k_rerank") or config.get("retrieval", {}).get("reranker", {}).get("top_k", 5)
     
     print(f"Retrieval settings: top_k_retrieve={top_k_retrieve}, top_k_rerank={top_k_rerank}")
     
