@@ -10,6 +10,7 @@ import logging
 from src.retrieval import HybridRetriever, CrossEncoderReranker
 from src.generator import FLANT5Generator
 from src.verification import EntailmentVerifier, ClaimExtractor
+from src.verification_controller import VerificationController
 from src.revision import AdaptiveRevisionStrategy
 from src.evaluation import EvaluationMetrics
 
@@ -125,6 +126,14 @@ class SelfVerificationRAGPipeline:
         
         # Initialize evaluation metrics
         self.evaluator = EvaluationMetrics()
+        
+        # Initialize verification controller (NEW - Step 1 integration)
+        logger.info("Initializing verification controller...")
+        self.verification_controller = VerificationController(
+            entailment_threshold=entailment_threshold,
+            max_revision_cycles=max_revision_iterations,
+            enable_revision=enable_revision
+        )
         
         logger.info("Pipeline initialized successfully!")
     
