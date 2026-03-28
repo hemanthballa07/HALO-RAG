@@ -7,9 +7,9 @@
 Our Self-Verification RAG pipeline consists of five main components:
 
 1. **Hybrid Retrieval**: Combines dense (FAISS) and sparse (BM25) retrieval
-2. **Cross-Encoder Reranking**: Reorders retrieved documents using DeBERTa-v3-base
+2. **Cross-Encoder Reranking**: Reorders retrieved documents
 3. **FLAN-T5 Generation**: Generates answers with QLoRA fine-tuning
-4. **Entailment-Based Verification**: Verifies claims using DeBERTa-v3-large
+4. **Entailment-Based Verification**: Verifies claims using NLI
 5. **Adaptive Revision**: Applies revision strategies when verification fails
 
 ### 2. Hybrid Retrieval
@@ -73,10 +73,10 @@ Our Self-Verification RAG pipeline consists of five main components:
 **Claim Extraction**:
 - Method: spaCy SVO (Subject-Verb-Object) extraction
 - Model: `en_core_web_sm`
-- Extracts factual claims from generated text
+- Extracts factual claims from generated answer
 
 **Verification Process**:
-1. Extract claims from generated text
+1. Extract claims from generated answer
 2. For each claim, check entailment against retrieved contexts
 3. Compute entailment score: P(entailment | context, claim)
 4. Threshold decision: τ = 0.75 (tuned via Experiment 3)
@@ -117,7 +117,7 @@ When verification fails (entailment rate < 0.90), apply one of three strategies:
 - **Recall@K**: Fraction of relevant docs in top-k
 - **MRR**: Mean Reciprocal Rank
 - **NDCG@K**: Normalized Discounted Cumulative Gain@K
-- **Coverage**: Fraction of corpus covered by top-k retrievals
+- **Coverage**: fraction of ground‑truth answer tokens found in retrieved docs
 
 #### Verification Metrics
 - **Factual Precision**: Fraction of claims that are entailed
@@ -128,6 +128,9 @@ When verification fails (entailment rate < 0.90), apply one of three strategies:
 #### Generation Metrics
 - **Exact Match**: Binary match (0 or 1)
 - **F1 Score**: Token overlap F1
+- **BLEU‑4**
+- **ROUGE - L**
+
 
 ### 8. Composite Metric: Verified F1
 
@@ -144,6 +147,7 @@ Verified F1 = 2 × (Factual Precision × Factual Recall) / (Factual Precision + 
 - Independent samples t-test (α = 0.05)
 - Paired t-test for matched samples
 - Bootstrap confidence intervals (1000 iterations)
+- Significance threshold: p < 0.05
 
 **Significance Criteria**: p < 0.05
 
@@ -187,7 +191,7 @@ Verified F1 = 2 × (Factual Precision × Factual Recall) / (Factual Precision + 
 2. **Verified F1 Composite Metric**: Unified metric combining factual precision and recall
 3. **Iterative Self-Improvement**: Fine-tuning loops for continuous improvement
 4. **Threshold Optimization Framework**: Systematic τ-tuning for optimal verification
-5. **Evidence-Based Verification Loop**: End-to-end pipeline with adaptive revision
+5. **Adaptive Revision Framework**: combining retrieval, generation, and verification
 
 ### 12. Expected Results
 
@@ -229,4 +233,3 @@ Verified F1 = 2 × (Factual Precision × Factual Recall) / (Factual Precision + 
 - Gao et al. (2023): Entailment-based Factual Verification
 - Hu et al. (2021): LoRA: Low-Rank Adaptation
 - Dettmers et al. (2023): QLoRA: Efficient Finetuning
-
