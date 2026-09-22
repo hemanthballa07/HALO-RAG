@@ -1,33 +1,27 @@
 # Contributing
 
-## Development Setup
+## Development setup
 
-1. Clone the repository
-2. Create virtual environment: `python3 -m venv venv`
-3. Activate: `source venv/bin/activate`
-4. Install: `pip install -r requirements.txt`
-5. Download spaCy model: `python -m spacy download en_core_web_sm`
-
-## Code Style
-
-- Follow PEP 8
-- Use type hints
-- Write docstrings for all functions and classes
-- Use logging instead of print statements
-
-## Testing
-
-Run tests:
 ```bash
-python tests/test_basic_functionality.py
-python tests/check_setup.py
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+python -m pip install -r requirements-dev.txt
+python -m spacy download en_core_web_sm
 ```
 
-## Pull Request Process
+## Before opening a pull request
 
-1. Create a feature branch
-2. Make your changes
-3. Run tests
-4. Update documentation if needed
-5. Submit pull request
+Run the standard verification gate:
 
+```bash
+make check
+```
+
+Changes to experiment behavior should include a focused regression test and a note about
+whether historical results need to be regenerated. Do not commit downloaded datasets,
+model weights, secrets, local caches, or generated checkpoints.
+
+Keep changes scoped, use type hints for new interfaces, and prefer structured logging in
+long-running experiment code. Pull requests should explain the motivation, validation
+performed, and any compute or data assumptions needed to reproduce the result.

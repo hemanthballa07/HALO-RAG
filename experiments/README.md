@@ -2,6 +2,30 @@
 
 This directory contains experiment scripts for the HALO-RAG project.
 
+## Paired question-answering benchmark
+
+`run_representative_benchmark.py` compares revision disabled and enabled on the
+same seeded SQuAD v2 validation cases. It builds the retrieval corpus before
+choosing questions, includes unrelated passages, and uses distinct source passages
+for the selected questions. Half the questions are unanswerable. It saves the
+selected question IDs, passage hashes, model names, dependency versions, individual
+predictions, and split summary metrics.
+It records both initial retrieval/reranking IDs and final evidence IDs after any
+revision, so those stages can be evaluated separately.
+
+```bash
+python experiments/run_representative_benchmark.py \
+  --questions 20 --corpus-size 500 --seed 42 \
+  --top-k-retrieve 20 --top-k-rerank 5 --max-revisions 1
+```
+
+Output: `results/metrics/representative_benchmark.json`. A small run is a
+diagnostic sample, not a release-grade performance estimate. Exact match is
+strict; a nonexact answer may still be partially useful, so inspect F1 and
+per-question predictions too. The `false_accept_rate` is reported only for
+unanswerable questions and counts verified non-abstaining answers;
+`unanswerable_answer_rate` counts every nonempty non-abstaining answer.
+
 ## Experiments
 
 ### Experiment 1: Baseline Comparison
@@ -78,6 +102,21 @@ python experiments/exp3_threshold_tuning.py --split validation
 python experiments/exp3_threshold_tuning.py --dry-run
 ```
 
+### Experiment 4: Revision Strategies
+**File**: `exp4_revision_strategies.py`
+
+Compares the verified pipeline with revision disabled and enabled, then reports paired
+metric comparisons and revision frequency.
+
+**Output**:
+- `results/metrics/exp4_revision_strategies.json`
+
+**Usage**:
+```bash
+python experiments/exp4_revision_strategies.py --split validation
+python experiments/exp4_revision_strategies.py --dry-run --no-wandb
+```
+
 ### Experiment 5: Self-Consistency Decoding
 **File**: `exp5_self_consistency.py`
 
@@ -115,6 +154,9 @@ python experiments/exp5_self_consistency.py --dry-run
 **File**: `exp6_iterative_training.py`
 
 Collects verified data (FP ≥ 0.85) and fine-tunes FLAN-T5 iteratively.
+
+This experiment requires CUDA and `bitsandbytes`; it intentionally exits before model
+loading when those requirements are unavailable.
 
 **Features**:
 - Collect verified training data with Factual Precision ≥ 0.85
@@ -227,7 +269,7 @@ python experiments/exp8_stress_test.py --limit 100 --split validation
 
 **Acceptance Criteria**:
 - Verified RAG dominates baseline on Pareto plot (higher EM & factuality)
-- τ ≈ 0.75–0.80 yields best Verified F1 (≥ 0.52)
+- Select τ from the measured validation trade-off and report whether Verified F1 reaches 0.52
 - Retrieval quality correlates strongly with factual precision
 - Artifacts + plots saved and logged (W&B optional)
 
@@ -257,9 +299,9 @@ python experiments/score_human_eval.py --csv results/human_eval/human_eval_sampl
 ```
 
 **Acceptance Criteria**:
-- 100 rows generated; annotators can fill in human_label
-- Scorer runs end-to-end and reports agreement ≥ 0.85
-- Cohen's κ ≥ 0.70 (substantial agreement)
+- 100 rows generated and independently annotated
+- Scorer runs end-to-end and reports observed agreement
+- Cohen's κ is reported with the annotation protocol
 
 ## CLI Arguments
 
@@ -373,4 +415,3 @@ checkpoints/
 - All experiments log commit hash and timestamp
 - Metrics are saved locally regardless of W&B availability
 - Dry run uses 30 samples for quick testing
-

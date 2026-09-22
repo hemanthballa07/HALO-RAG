@@ -1,32 +1,40 @@
-# Results Directory
+# Results
 
-This directory contains the results from all experiments.
+Experiment scripts write scalar metrics to `results/metrics/`, figures to
+`results/figures/`, and annotation files to `results/human_eval/`.
 
-## Experiment Results
+Tracked metric artifacts were removed after corrections to dataset parsing, retrieval
+score normalization, and NLI label mapping. Those changes affect reported factuality and
+retrieval values, so previous outputs are not comparable to current runs.
 
-- `exp1_baseline.json`: Baseline comparison results
-- `exp2_retrieval_comparison.json`: Retrieval comparison results
-- `exp3_threshold_tuning.json`: Threshold tuning results
-- `exp4_revision_strategies.json`: Revision strategies results
-- `exp5_decoding_strategies.json`: Decoding strategies results
-- `exp6_iterative_training.json`: Iterative training results
-- `exp7_ablation_study.json`: Ablation study results
-- `exp8_stress_test.json`: Stress test results
+Generate a fresh smoke result with:
 
-## Figures
+```bash
+python experiments/exp1_baseline.py --limit 10 --no-wandb
+```
 
-- `figures/exp3_threshold_curves.png`: Threshold optimization curves
-- `figures/exp3_pareto_frontier.png`: Pareto frontier (Factual Precision vs Verified F1)
-- `figures/exp6_training_curves.png`: Training curves over iterations
+For a paired evaluation with a seeded distractor corpus and a balanced
+answerable/unanswerable sample:
 
-## Summary
+```bash
+python experiments/run_representative_benchmark.py \
+  --questions 20 --corpus-size 500 --seed 42
+```
 
-- `all_experiments_summary.json`: Summary of all experiments
+The JSON output includes individual cases and corpus fingerprints so the
+comparison can be audited. Small samples are useful for finding failures but
+should not be presented as validated system performance.
 
-## Metrics Format
+Generate the multi-seed summary with:
 
-All metrics are reported as:
-- Mean ± Standard Deviation
-- With 95% confidence intervals
-- Statistical significance (p < 0.05)
+```bash
+python experiments/run_final_experiments.py --seeds 42 123 456 --split validation
+```
 
+The runner creates `results/metrics/final_summary.csv` and
+`results/metrics/final_aggregated_results.json`. A successful multi-seed summary should
+report `n=3` per metric. When `--skip-runs` is used, the latest artifact is deliberately
+treated as a single observation because individual experiment files are not seed-indexed.
+
+The root `final_run_results.zip` is a pre-correction historical archive. It remains in the
+repository for provenance, but its metrics should not be cited as current HALO-RAG results.

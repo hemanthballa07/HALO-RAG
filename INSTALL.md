@@ -1,69 +1,55 @@
-# Installation Guide
+# Installation
 
-## Quick Installation
+## Requirements
 
-### Step 1: Install Python Dependencies
+- Python 3.10+
+- Git
+- Several gigabytes of free disk space for model and dataset caches
+- A CUDA GPU for 4-bit QLoRA training; inference can use CUDA, Apple Silicon MPS, or CPU
 
-```bash
-# Install all required packages
-pip3 install -r requirements.txt
-
-# Or if pip3 is not available
-python3 -m pip install -r requirements.txt
-```
-
-### Step 2: Download spaCy Model
+## Standard environment
 
 ```bash
-python3 -m spacy download en_core_web_sm
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+python -m spacy download en_core_web_sm
+python scripts/check_setup.py
 ```
 
-### Step 3: Verify Installation
+The Hugging Face datasets used by the experiments download on first use. To prefetch all
+configured models, run `bash scripts/download_models.sh` after installing dependencies.
+
+## CUDA and QLoRA
+
+Install PyTorch using the command recommended for the host's CUDA version, then run:
 
 ```bash
-python3 check_setup.py
+python -m pip install -r requirements-gpu.txt
 ```
 
-## Troubleshooting
+`bitsandbytes` is deliberately kept out of the base dependency set because it is not
+portable to every platform. Experiment 6 exits with a clear error when its CUDA QLoRA
+requirements are unavailable. Other experiments fall back to an unquantized generator.
 
-### If you get permission errors:
+## Development environment
 
 ```bash
-# Use --user flag
-pip3 install --user -r requirements.txt
-
-# Or create a virtual environment (recommended)
-python3 -m venv venv
-source venv/bin/activate  # On macOS/Linux
-pip install -r requirements.txt
+python -m pip install -r requirements-dev.txt
+make check
 ```
 
-### If you're on a GPU cluster (HiperGator):
+Use `python scripts/check_setup.py --skip-dependencies` when validating only repository
+structure and syntax, such as in a lightweight CI job.
 
-```bash
-# For FAISS GPU support
-pip3 install faiss-gpu
+## Common issues
 
-# For CUDA-enabled PyTorch
-# Check PyTorch installation matches your CUDA version
-# https://pytorch.org/get-started/locally/
-```
-
-### If you have issues with bitsandbytes:
-
-```bash
-# bitsandbytes may require specific CUDA versions
-# If installation fails, you can still use the pipeline
-# without QLoRA quantization (set use_qlora=False in config)
-```
-
-## After Installation
-
-Run the setup check:
-
-```bash
-python3 check_setup.py
-```
-
-All items should show ✓ (checkmarks) when installation is complete.
-
+- **Out of disk space:** remove unused Hugging Face cache entries or set
+  `HF_HOME` to a volume with more capacity.
+- **MPS operation unsupported:** set `experiments.device: "cpu"` in
+  `config/config.yaml` for the affected run.
+- **CUDA mismatch:** reinstall PyTorch for the installed CUDA runtime before installing
+  `bitsandbytes`.
+- **Missing spaCy model:** run `python -m spacy download en_core_web_sm` in the active
+  virtual environment.

@@ -1,125 +1,113 @@
-# Self-Verification Chains for Hallucination-Free RAG
+# HALO-RAG
 
-**CIS 6930: Special Topics in Large Language Models (Fall 2025)**  
-**University of Florida**
+HALO-RAG is an experimental retrieval-augmented generation pipeline that verifies
+generated claims against retrieved evidence and revises answers that are not well
+supported. It combines hybrid retrieval, cross-encoder reranking, FLAN-T5 generation,
+natural-language-inference verification, and adaptive revision strategies.
 
-## Overview
+The project is research software. Verification can reduce unsupported claims, but it
+does not guarantee that every answer is correct.
 
-This repository implements a Self-Verification RAG pipeline that combines hybrid retrieval, cross-encoder reranking, fine-tuned generation, and entailment-based factual verification to achieve hallucination-free retrieval-augmented generation.
+## Pipeline
 
-## Architecture
+1. Retrieve passages with MPNet embeddings (FAISS) and BM25.
+2. Fuse dense and sparse scores, then rerank with an MS MARCO cross-encoder.
+3. Generate an answer with FLAN-T5.
+4. Extract claims and score their entailment against the retrieved evidence.
+5. Re-retrieve, constrain generation, or revise claim-by-claim when support is weak.
 
-1. **Hybrid Retrieval**: FAISS (dense) + BM25 (sparse) fusion (0.6/0.4)
-2. **Reranking**: DeBERTa-v3-base cross-encoder on MS MARCO
-3. **Generation**: FLAN-T5-Large fine-tuned with QLoRA (r=16, 4-bit NF4)
-4. **Verification**: DeBERTa-v3-large entailment model (MNLI + FEVER) with spaCy SVO extraction
-5. **Revision**: Adaptive strategies (re-retrieval, constrained generation, claim-by-claim)
+The default model and experiment settings live in `config/config.yaml`. Runtime device
+selection is automatic: CUDA is preferred, then Apple Silicon MPS, then CPU. QLoRA is
+enabled only when CUDA and `bitsandbytes` are available.
 
-## Key Metrics
+## Setup
 
-- **Recall@20** ≥ 0.95
-- **Coverage** ≥ 0.90
-- **Factual Precision** ≥ 0.90
-- **Verified F1** ≥ 0.52
-- **Hallucination Rate** ≤ 0.10
+Python 3.10 or newer is recommended.
 
-## Project Structure
-
-```
-HALO-RAG/
-├── src/
-│   ├── retrieval/
-│   │   ├── hybrid_retrieval.py
-│   │   ├── reranker.py
-│   │   └── __init__.py
-│   ├── verification/
-│   │   ├── entailment_verifier.py
-│   │   ├── claim_extractor.py
-│   │   └── __init__.py
-│   ├── generator/
-│   │   ├── flan_t5_generator.py
-│   │   ├── qlora_trainer.py
-│   │   └── __init__.py
-│   ├── revision/
-│   │   ├── adaptive_strategies.py
-│   │   └── __init__.py
-│   ├── evaluation/
-│   │   ├── metrics.py
-│   │   ├── statistical_testing.py
-│   │   └── __init__.py
-│   └── pipeline/
-│       ├── rag_pipeline.py
-│       └── __init__.py
-├── experiments/
-│   ├── exp1_baseline.py
-│   ├── exp2_retrieval_comparison.py
-│   ├── exp3_threshold_tuning.py
-│   ├── exp4_revision_strategies.py
-│   ├── exp5_decoding_strategies.py
-│   ├── exp6_iterative_training.py
-│   ├── exp7_ablation_study.py
-│   ├── exp8_stress_test.py
-│   └── run_all_experiments.py
-├── notebooks/
-│   ├── main_experiment_notebook.ipynb
-│   └── analysis_visualization.ipynb
-├── config/
-│   ├── config.yaml
-│   └── model_configs.yaml
-├── data/
-│   └── README.md
-├── results/
-│   └── README.md
-├── scripts/
-│   ├── setup_data.sh
-│   └── download_models.sh
-└── requirements.txt
-```
-
-## Quick Start
-
-1. **Install dependencies**:
 ```bash
-pip install -r requirements.txt
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 python -m spacy download en_core_web_sm
+python scripts/check_setup.py
 ```
 
-2. **Download models and data**:
+For QLoRA training on a supported CUDA host, install the additional dependency:
+
 ```bash
-bash scripts/download_models.sh
-bash scripts/setup_data.sh
+python -m pip install -r requirements-gpu.txt
 ```
 
-3. **Run experiments**:
+Model and dataset downloads can require several gigabytes. See [INSTALL.md](INSTALL.md)
+for environment notes and troubleshooting.
+
+## Run experiments
+
+Run a small baseline first:
+
 ```bash
-python experiments/run_all_experiments.py
+python experiments/exp1_baseline.py --limit 10 --no-wandb
 ```
 
-## Experiments
+For a paired baseline-versus-revision check with distractor passages and both
+answerable and unanswerable questions, run:
 
-The project includes 8 comprehensive experiments:
-1. **Baseline Comparison**: Standard RAG vs Self-Verification RAG
-2. **Retrieval Comparison**: Dense vs Sparse vs Hybrid
-3. **Threshold Tuning**: Optimal τ for entailment verification
-4. **Revision Strategies**: Effectiveness of adaptive revision
-5. **Decoding Strategies**: Greedy vs Beam vs Nucleus sampling
-6. **Iterative Training**: Self-improvement through fine-tuning loops
-7. **Ablation Study**: Component-wise contribution analysis
-8. **Stress Test**: Performance on adversarial queries
-
-## Citation
-
-If you use this code, please cite:
+```bash
+python experiments/run_representative_benchmark.py \
+  --questions 20 --corpus-size 500 --seed 42
 ```
-@article{halo_rag_2025,
-  title={Self-Verification Chains for Hallucination-Free Retrieval-Augmented Generation},
-  author={[Hemanth Balla, Anisa Shaik, Reshma Koshy, Pranay Reddy Pullaiahgari]},
-  journal={CIS 6930: Special Topics in Large Language Models, University of Florida},
-  year={2025}
-}
+
+This writes per-question answers and aggregate metrics to
+`results/metrics/representative_benchmark.json`. The models must be downloaded on the
+first run. The benchmark evaluates the same questions and corpus in both variants;
+it does not train or tune the system.
+
+Run the complete experiment sequence:
+
+```bash
+python experiments/run_final_experiments.py --dry-run
 ```
+
+Individual experiments are documented in [experiments/README.md](experiments/README.md).
+Outputs are written under `results/`; checkpoints and downloaded data are intentionally
+excluded from version control.
+
+## Development
+
+```bash
+python -m pip install -r requirements-dev.txt
+make check
+```
+
+`make check` performs static checks, compiles every Python module, validates repository
+structure, and runs the lightweight regression and benchmark tests. CI runs the
+same checks on every push and pull request. With the full runtime installed, run
+`python -m pytest -q` for the complete local test suite.
+
+## Repository layout
+
+```text
+config/       experiment and model configuration
+experiments/  reproducible experiment entry points
+notebooks/    interactive pipeline walkthrough
+scripts/      setup, validation, and results-lock utilities
+src/          retrieval, generation, verification, revision, and evaluation code
+tests/        regression and metric tests
+results/      tracked result summaries and human-evaluation templates
+```
+
+## Evaluation
+
+The suite reports retrieval metrics, answer overlap metrics, factual precision/recall,
+coverage, hallucination rate, verified F1, FEVER-style scores, and abstention rate.
+The paired benchmark additionally separates answerable and unanswerable exact match,
+token F1, evidence hit rate, false acceptance, and abstention. Passage support alone
+does not establish that an answer addresses the question.
+Targets in `config/config.yaml` are evaluation goals, not guaranteed performance claims.
+Historical outputs should be regenerated after changes to models, data processing, or
+verification logic.
 
 ## License
 
-Academic use only - University of Florida CIS 6930
-
+See [LICENSE](LICENSE).
