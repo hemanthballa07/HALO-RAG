@@ -36,6 +36,7 @@ from src.generator import FLANT5Generator, QLoRATrainer
 from src.evaluation import EvaluationMetrics
 from src.utils import setup_wandb, log_metrics, log_metadata, get_commit_hash, get_timestamp
 from src.utils.cli import parse_experiment_args
+from src.utils.device import qlora_supported, resolve_device
 from datasets import Dataset
 
 
@@ -131,7 +132,11 @@ def fine_tune_iteration(
     answers = [ex["verified_answer"] for ex in verified_examples]
     
     # Initialize generator (for tokenizer and model setup)
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = resolve_device(config.get("experiments", {}).get("device", "auto"))
+    if not qlora_supported(device):
+        raise RuntimeError(
+            "Experiment 6 requires a CUDA device and bitsandbytes for QLoRA training."
+        )
     
     # Load previous checkpoint if available (for iterative training)
     generator = FLANT5Generator(
@@ -202,16 +207,17 @@ def fine_tune_iteration(
     )
     
     # Tokenize targets (answers)
-    with generator.tokenizer.as_target_tokenizer():
-        labels = generator.tokenizer(
-            answers,
-            max_length=config.get("generation", {}).get("max_length", 512),
-            padding=True,
-            truncation=True,
-            return_tensors="pt"
-        )
+    labels = generator.tokenizer(
+        text_target=answers,
+        max_length=config.get("generation", {}).get("max_length", 512),
+        padding=True,
+        truncation=True,
+        return_tensors="pt"
+    )
     
-    model_inputs["labels"] = labels["input_ids"]
+    label_ids = labels["input_ids"]
+    label_ids[label_ids == generator.tokenizer.pad_token_id] = -100
+    model_inputs["labels"] = label_ids
     
     # Convert to dataset
     train_dataset = Dataset.from_dict({
@@ -254,7 +260,7 @@ def fine_tune_iteration(
         logging_steps=int(training_config.get("logging_steps", 100)),
         save_strategy="epoch",
         save_total_limit=3,
-        fp16=True,
+        fp16=device.startswith("cuda"),
         report_to="wandb" if wandb_enabled else "none",
         run_name=f"exp6_iter{iteration}"
     )
@@ -405,7 +411,8 @@ def run_iterative_training(
     np.random.seed(seed)
     torch.manual_seed(seed)
     
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = resolve_device(config.get("experiments", {}).get("device", "auto"))
+    use_qlora = qlora_supported(device)
     
     # Initialize evaluator
     evaluator = EvaluationMetrics()
@@ -462,7 +469,7 @@ def run_iterative_training(
                 corpus=corpus,
                 device=device,
                 enable_revision=False,
-                use_qlora=True,
+                use_qlora=use_qlora,
                 generator_lora_checkpoint=checkpoint_path
             )
         else:
@@ -483,7 +490,7 @@ def run_iterative_training(
                         corpus=corpus,
                         device=device,
                         enable_revision=False,
-                        use_qlora=True,
+                        use_qlora=use_qlora,
                         generator_lora_checkpoint=prev_checkpoint
                     )
                 else:
@@ -531,7 +538,7 @@ def run_iterative_training(
             corpus=corpus,
             device=device,
             enable_revision=False,
-            use_qlora=True,
+            use_qlora=use_qlora,
             generator_lora_checkpoint=checkpoint_path
         )
         
@@ -684,6 +691,12 @@ def main():
     parser.add_argument("--iterations", type=int, default=None, help="Number of iterations")
     parser.add_argument("--limit", type=int, default=None, help="Limit number of examples")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
+    parser.add_argument(
+        "--split",
+        choices=["validation"],
+        default="validation",
+        help="Evaluation split; training always uses the train split",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Dry run with ≤100 examples")
     parser.add_argument("--no-wandb", action="store_true", help="Disable W&B logging")
     
@@ -706,6 +719,11 @@ def main():
     iterations = args.iterations
     if iterations is None:
         iterations = config.get("experiments", {}).get("exp6", {}).get("iterations", 3)
+    device = resolve_device(config.get("experiments", {}).get("device", "auto"))
+    if iterations > 0 and not qlora_supported(device):
+        raise RuntimeError(
+            "Experiment 6 requires a CUDA device and bitsandbytes for QLoRA training."
+        )
     
     # Determine training limit (ONLY from exp6.train_limit config)
     train_limit = config.get("experiments", {}).get("exp6", {}).get("train_limit")
@@ -734,7 +752,7 @@ def main():
     )
     val_examples = load_dataset_from_config(
         config,
-        split="validation",
+        split=args.split,
         limit=val_limit
     )
     
@@ -767,8 +785,19 @@ def main():
         print(f"Using full validation set: {len(val_examples)} examples")
             
     # Prepare for experiments
-    train_queries, train_ground_truths, train_relevant_docs, corpus = prepare_for_experiments(train_examples)
-    val_queries, val_ground_truths, val_relevant_docs, _ = prepare_for_experiments(val_examples)
+    # Both splits need document IDs in the same retrieval corpus. Preparing them
+    # independently would make validation IDs point at the wrong documents.
+    combined_examples = train_examples + val_examples
+    all_queries, all_ground_truths, all_relevant_docs, corpus = prepare_for_experiments(
+        combined_examples
+    )
+    split_index = len(train_examples)
+    train_queries = all_queries[:split_index]
+    train_ground_truths = all_ground_truths[:split_index]
+    train_relevant_docs = all_relevant_docs[:split_index]
+    val_queries = all_queries[split_index:]
+    val_ground_truths = all_ground_truths[split_index:]
+    val_relevant_docs = all_relevant_docs[split_index:]
     
     print(f"Train: {len(train_queries)} queries")
     print(f"Validation: {len(val_queries)} queries")

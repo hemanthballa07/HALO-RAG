@@ -31,6 +31,21 @@ def load_config(config_path: str = "config/config.yaml"):
     return config
 
 
+def extract_numeric_metrics(payload: Dict[str, Any]) -> Dict[str, float]:
+    """Extract scalar metric means from an experiment result document."""
+    metric_payload = payload.get("aggregated_metrics", payload)
+    if not isinstance(metric_payload, dict):
+        return {}
+
+    metrics = {}
+    for metric_name, value in metric_payload.items():
+        if isinstance(value, dict):
+            value = value.get("mean")
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            metrics[metric_name] = float(value)
+    return metrics
+
+
 def run_experiment(experiment_name: str, seed: int, config_path: str = "config/config.yaml", 
                    split: str = "validation", limit: int = None, dry_run: bool = False) -> Dict[str, Any]:
     """
@@ -52,7 +67,7 @@ def run_experiment(experiment_name: str, seed: int, config_path: str = "config/c
     print(f"{'='*60}")
     
     # Build command
-    cmd = ["python3", f"experiments/{experiment_name}.py", 
+    cmd = [sys.executable, f"experiments/{experiment_name}.py",
            "--config", config_path,
            "--split", split,
            "--seed", str(seed)]
@@ -89,6 +104,7 @@ def load_experiment_results(experiment_name: str, seed: int) -> Dict[str, Any]:
         "exp1_baseline": "results/metrics/exp1_baseline.json",
         "exp2_retrieval_comparison": "results/metrics/exp2_retrieval.csv",
         "exp3_threshold_tuning": "results/metrics/exp3_threshold_sweep.csv",
+        "exp4_revision_strategies": "results/metrics/exp4_revision_strategies.json",
         "exp5_self_consistency": "results/metrics/exp5_self_consistency.json",
         "exp6_iterative_training": "results/metrics/exp6_iterative_training.csv",
         "exp7_ablation_study": "results/metrics/exp7_ablation.csv",
@@ -102,7 +118,10 @@ def load_experiment_results(experiment_name: str, seed: int) -> Dict[str, Any]:
     try:
         if result_file.endswith(".json"):
             with open(result_file, 'r') as f:
-                return json.load(f)
+                payload = json.load(f)
+                if experiment_name == "exp4_revision_strategies":
+                    payload = payload.get("revision_metrics", {})
+                return extract_numeric_metrics(payload)
         elif result_file.endswith(".csv"):
             # Load CSV and convert to dict
             metrics = {}
@@ -161,7 +180,7 @@ def load_experiment_results(experiment_name: str, seed: int) -> Dict[str, Any]:
 def aggregate_results_across_seeds(experiments: List[str], seeds: List[int], 
                                    config_path: str = "config/config.yaml",
                                    split: str = "validation", limit: int = None,
-                                   dry_run: bool = False) -> Dict[str, Dict[str, Any]]:
+                                   dry_run: bool = False) -> tuple[Dict[str, Dict[str, Any]], List[str]]:
     """
     Run experiments with multiple seeds and aggregate results.
     
@@ -174,9 +193,10 @@ def aggregate_results_across_seeds(experiments: List[str], seeds: List[int],
         dry_run: Dry run mode
     
     Returns:
-        Dictionary with aggregated results per experiment
+        Aggregated results and a list of failed or incomplete runs
     """
     all_results = {}
+    failures = []
     
     for exp_name in experiments:
         print(f"\n{'='*60}")
@@ -195,6 +215,10 @@ def aggregate_results_across_seeds(experiments: List[str], seeds: List[int],
                 metrics = load_experiment_results(exp_name, seed)
                 if metrics:
                     seed_results.append(metrics)
+                else:
+                    failures.append(f"{exp_name} (seed {seed}): no metrics artifact")
+            else:
+                failures.append(f"{exp_name} (seed {seed}): experiment failed")
         
         # Aggregate across seeds
         if seed_results:
@@ -221,7 +245,7 @@ def aggregate_results_across_seeds(experiments: List[str], seeds: List[int],
             for metric, stats in aggregated.items():
                 print(f"  {metric}: {stats['mean']:.4f} ± {stats['std']:.4f} (n={stats['n']})")
     
-    return all_results
+    return all_results, failures
 
 
 def create_final_summary_csv(aggregated_results: Dict[str, Dict[str, Any]], 
@@ -265,12 +289,15 @@ def create_final_summary_csv(aggregated_results: Dict[str, Dict[str, Any]],
     print(f"\n✓ Created final summary CSV: {output_path}")
 
 
-def copy_key_plots_to_final(output_dir: str = "results/figures/final"):
+def copy_key_plots_to_final(output_dir: str = "results/figures/final") -> List[str]:
     """
     Copy 6 key plots to final directory.
     
     Args:
         output_dir: Output directory for final plots
+
+    Returns:
+        Source paths for plots that were not produced
     """
     os.makedirs(output_dir, exist_ok=True)
     
@@ -287,6 +314,7 @@ def copy_key_plots_to_final(output_dir: str = "results/figures/final"):
     figures_dir = "results/figures"
     
     copied = []
+    missing = []
     for src_name, dst_name in key_plots:
         src_path = os.path.join(figures_dir, src_name)
         dst_path = os.path.join(output_dir, dst_name)
@@ -297,8 +325,10 @@ def copy_key_plots_to_final(output_dir: str = "results/figures/final"):
             print(f"✓ Copied {src_name} -> {dst_name}")
         else:
             print(f"✗ Plot not found: {src_path}")
+            missing.append(src_path)
     
     print(f"\n✓ Copied {len(copied)}/{len(key_plots)} plots to {output_dir}")
+    return missing
 
 
 def main():
@@ -316,6 +346,7 @@ def main():
                        help="Dry run mode")
     parser.add_argument("--experiments", type=str, nargs="+",
                        default=["exp1_baseline", "exp2_retrieval_comparison", "exp3_threshold_tuning",
+                               "exp4_revision_strategies",
                                "exp5_self_consistency", "exp6_iterative_training", "exp7_ablation_study",
                                "exp8_stress_test"],
                        help="Experiments to run")
@@ -338,7 +369,7 @@ def main():
     
     # Run experiments and aggregate results
     if not args.skip_runs:
-        aggregated_results = aggregate_results_across_seeds(
+        aggregated_results, failures = aggregate_results_across_seeds(
             experiments=args.experiments,
             seeds=args.seeds,
             config_path=args.config,
@@ -349,36 +380,28 @@ def main():
     else:
         print("Skipping experiment runs, aggregating existing results...")
         aggregated_results = {}
+        failures = []
         for exp_name in args.experiments:
-            seed_results = []
-            for seed in args.seeds:
-                metrics = load_experiment_results(exp_name, seed)
-                if metrics:
-                    seed_results.append(metrics)
-            
-            if seed_results:
-                all_metrics = set()
-                for result in seed_results:
-                    all_metrics.update(result.keys())
-                
-                aggregated = {}
-                for metric in all_metrics:
-                    values = [r.get(metric, 0.0) for r in seed_results if metric in r]
-                    if values:
-                        aggregated[metric] = {
-                            "mean": float(np.mean(values)),
-                            "std": float(np.std(values)),
-                            "values": values,
-                            "n": len(values)
-                        }
-                aggregated_results[exp_name] = aggregated
+            # Experiment scripts keep only their latest result artifact. Without
+            # rerunning, treat that file as one observation instead of pretending
+            # it represents every requested seed.
+            metrics = load_experiment_results(exp_name, args.seeds[0])
+            if not metrics:
+                failures.append(f"{exp_name}: no existing metrics artifact")
+                continue
+
+            aggregated_results[exp_name] = {
+                metric: {"mean": value, "std": 0.0, "values": [value], "n": 1}
+                for metric, value in metrics.items()
+            }
     
     # Create final summary CSV
     if aggregated_results:
         create_final_summary_csv(aggregated_results)
     
-    # Copy key plots (always copy if plots exist)
-    copy_key_plots_to_final()
+    if args.copy_plots:
+        missing_plots = copy_key_plots_to_final()
+        failures.extend(f"missing plot: {path}" for path in missing_plots)
     
     # Save aggregated results to JSON
     results_json_path = "results/metrics/final_aggregated_results.json"
@@ -396,8 +419,13 @@ def main():
     print("\n" + "="*60)
     print("FINAL EXPERIMENT RUNNER COMPLETE")
     print("="*60)
+    if failures:
+        print("\nIncomplete runs:")
+        for failure in failures:
+            print(f"  - {failure}")
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
-    main()
-
+    raise SystemExit(main())

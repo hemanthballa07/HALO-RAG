@@ -9,6 +9,7 @@ import json
 import yaml
 from datetime import datetime
 import subprocess
+from typing import Optional
 
 # Add project root to path
 project_root = Path(__file__).parent.parent
@@ -96,7 +97,7 @@ def get_verified_data_snapshots():
 def create_results_lock(output_path: str = "RESULTS_LOCK.md", 
                        config_path: str = "config/config.yaml",
                        optimal_tau: float = 0.75,
-                       seeds: list = [42, 123, 456],
+                       seeds: Optional[list[int]] = None,
                        dataset: str = "squad_v2",
                        split: str = "validation"):
     """
@@ -110,6 +111,9 @@ def create_results_lock(output_path: str = "RESULTS_LOCK.md",
         dataset: Dataset name
         split: Dataset split
     """
+    if seeds is None:
+        seeds = [42, 123, 456]
+
     git_info = get_git_info()
     config = get_config_info(config_path)
     verified_snapshots = get_verified_data_snapshots()
@@ -206,58 +210,43 @@ The following verified data snapshots were used for iterative training (Exp6):
     else:
         content += "No verified data snapshots found.\n\n"
     
-    content += f"""## Experiment Run Timestamps
+    artifacts = {
+        "Experiment 1: Baseline Comparison": ["results/metrics/exp1_baseline.json"],
+        "Experiment 2: Retrieval Comparison": ["results/metrics/exp2_retrieval.csv"],
+        "Experiment 3: Threshold Tuning": ["results/metrics/exp3_threshold_sweep.csv"],
+        "Experiment 4: Revision Strategies": [
+            "results/metrics/exp4_revision_strategies.json"
+        ],
+        "Experiment 5: Self-Consistency Decoding": [
+            "results/metrics/exp5_self_consistency.json"
+        ],
+        "Experiment 6: Iterative Fine-Tuning": [
+            "results/metrics/exp6_iterative_training.csv"
+        ],
+        "Experiment 7: Ablation Study": ["results/metrics/exp7_ablation.csv"],
+        "Experiment 8: Stress Testing": ["results/metrics/exp8_stress.json"],
+        "Human Evaluation": [
+            "results/metrics/human_eval_agreement.json",
+            "results/human_eval/human_eval_samples.csv",
+        ],
+    }
 
-All experiments were run with seeds {seeds} and optimal threshold τ = {optimal_tau}.
+    content += "## Result Artifacts\n\n"
+    for label, paths in artifacts.items():
+        missing_paths = [path for path in paths if not os.path.exists(path)]
+        status = "Complete" if not missing_paths else "Incomplete"
+        content += f"### {label}\n\n- **Status**: {status}\n"
+        content += "- **Expected output**: " + ", ".join(f"`{path}`" for path in paths) + "\n"
+        if missing_paths:
+            content += "- **Missing**: " + ", ".join(f"`{path}`" for path in missing_paths) + "\n"
+        content += "\n"
 
-### Experiment 1: Baseline Comparison
-- **Status**: Completed
-- **Output**: `results/metrics/exp1_baseline.json`, `results/metrics/exp1_baseline.csv`
+    summary_path = "results/metrics/final_summary.csv"
+    content += f"""## Final Summary Metrics
 
-### Experiment 2: Retrieval Comparison
-- **Status**: Completed
-- **Output**: `results/metrics/exp2_retrieval.csv`, `results/figures/exp2_retrieval_bars.png`
-
-### Experiment 3: Threshold Tuning
-- **Status**: Completed
-- **Output**: `results/metrics/exp3_threshold_sweep.csv`, `results/figures/exp3_verified_f1_vs_tau.png`
-
-### Experiment 5: Self-Consistency Decoding
-- **Status**: Completed
-- **Output**: `results/metrics/exp5_self_consistency.json`, `results/figures/exp5_decoding_comparison.png`
-
-### Experiment 6: Iterative Fine-Tuning
-- **Status**: Completed
-- **Output**: `results/metrics/exp6_iterative_training.csv`, `results/figures/exp6_iteration_curves.png`
-
-### Experiment 7: Ablation Study
-- **Status**: Completed
-- **Output**: `results/metrics/exp7_ablation.csv`, `results/figures/exp7_ablation_bars.png`
-
-### Experiment 8: Stress Testing & Pareto Frontier
-- **Status**: Completed
-- **Output**: `results/metrics/exp8_stress.json`, `results/figures/exp8_pareto_frontier.png`
-
-### Human Evaluation
-- **Status**: Completed
-- **Output**: `results/metrics/human_eval_agreement.json`, `results/human_eval/human_eval_samples.csv`
-
-## Final Summary Metrics
-
-- **Output**: `results/metrics/final_summary.csv`
-- **Format**: Mean ± Standard Deviation across seeds {seeds}
-- **Metrics**: EM, F1, BLEU-4, ROUGE-L, Factual Precision, Hallucination Rate, Verified F1, Abstention Rate, Recall@20, Coverage
-
-## Key Plots
-
-All key plots have been copied to `results/figures/final/`:
-
-1. `retrieval_bars.png` - Retrieval comparison (Exp2)
-2. `tau_sweep.png` - Threshold sweep (Exp3)
-3. `decoding_comparison.png` - Decoding strategies (Exp5)
-4. `iteration_curves.png` - Iterative training (Exp6)
-5. `pareto_frontier.png` - Pareto frontier (Exp8)
-6. `ablation_bars.png` - Ablation study (Exp7)
+- **Output**: `{summary_path}`
+- **Status**: {'Present' if os.path.exists(summary_path) else 'Missing'}
+- **Requested seeds**: {seeds}
 
 ## Reproducibility Instructions
 
@@ -273,9 +262,9 @@ To reproduce these results:
    pip install -r requirements.txt
    ```
 
-3. **Load dataset**:
+3. **Validate the environment**:
    ```bash
-   python experiments/check_dataset_loading.py
+   python scripts/check_setup.py
    ```
 
 4. **Run experiments**:
@@ -290,11 +279,11 @@ To reproduce these results:
 
 ## Notes
 
-- All experiments were run with the optimal threshold τ = {optimal_tau} identified in Experiment 8
-- Results are aggregated across {len(seeds)} random seeds for statistical robustness
-- Human evaluation was performed on 100 samples with inter-annotator agreement ≥ 0.85
-- FAISS index was built on the full corpus for retrieval experiments
-- Verified data snapshots were generated during Exp6 iterative training
+- This file records requested settings and observed artifacts; it does not infer that a
+  run completed when its files are absent.
+- Confirm the seed count in `final_aggregated_results.json` before reporting multi-seed
+  statistics.
+- Experiment 6 requires CUDA and `bitsandbytes`.
 
 ## Contact
 
@@ -338,4 +327,3 @@ if __name__ == "__main__":
         dataset=args.dataset,
         split=args.split
     )
-

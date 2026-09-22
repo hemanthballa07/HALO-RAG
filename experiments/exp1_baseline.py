@@ -27,6 +27,7 @@ from src.pipeline import SelfVerificationRAGPipeline
 from src.evaluation import EvaluationMetrics, StatisticalTester
 from src.utils import setup_wandb, log_metrics, log_metadata, get_commit_hash, get_timestamp
 from src.utils.cli import parse_experiment_args
+from src.utils.device import resolve_device
 
 
 def load_config(config_path: str = "config/config.yaml"):
@@ -67,7 +68,7 @@ def run_baseline_experiment(
     np.random.seed(seed)
     torch.manual_seed(seed)
     
-    device = "cuda"
+    device = resolve_device(config.get("experiments", {}).get("device", "auto"))
     print(f"Using device: {device}")
     
     use_qlora = config.get("generation", {}).get("qlora", {}).get("training_enabled", False)

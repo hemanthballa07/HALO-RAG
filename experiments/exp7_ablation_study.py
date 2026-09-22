@@ -29,6 +29,7 @@ from src.verification import EntailmentVerifier, ClaimExtractor
 from src.verification.lexical_verifier import LexicalOverlapVerifier
 from src.evaluation import EvaluationMetrics
 from src.utils import setup_wandb, log_metrics, log_metadata, get_commit_hash, get_timestamp
+from src.utils.device import resolve_device
 
 
 def load_config(config_path: str = "config/config.yaml"):
@@ -207,7 +208,7 @@ def run_ablation_study(
     np.random.seed(seed)
     torch.manual_seed(seed)
     
-    device = "cuda"
+    device = resolve_device(config.get("experiments", {}).get("device", "auto"))
     print(f"Using device: {device}")
     
     # Limit examples if specified

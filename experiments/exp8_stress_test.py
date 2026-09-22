@@ -27,6 +27,7 @@ from src.data import load_dataset_from_config, prepare_for_experiments
 from src.pipeline import SelfVerificationRAGPipeline
 from src.evaluation import EvaluationMetrics
 from src.utils import setup_wandb, log_metrics, log_metadata, get_commit_hash, get_timestamp
+from src.utils.device import resolve_device
 
 
 def load_config(config_path: str = "config/config.yaml"):
@@ -278,7 +279,7 @@ def run_tau_sweep_stress_test(
     np.random.seed(seed)
     torch.manual_seed(seed)
     
-    device = "cuda"
+    device = resolve_device(config.get("experiments", {}).get("device", "auto"))
     print(f"Using device: {device}")
     
     if limit:
@@ -369,7 +370,7 @@ def run_retrieval_degradation_test(
     np.random.seed(seed)
     torch.manual_seed(seed)
     
-    device = "cuda"
+    device = resolve_device(config.get("experiments", {}).get("device", "auto"))
     print(f"Using device: {device}")
     
     if limit:
@@ -461,7 +462,7 @@ def run_verifier_off_test(
     np.random.seed(seed)
     torch.manual_seed(seed)
     
-    device = "cuda"
+    device = resolve_device(config.get("experiments", {}).get("device", "auto"))
     print(f"Using device: {device}")
     
     if limit:
@@ -545,7 +546,7 @@ def run_baseline_test(
     np.random.seed(seed)
     torch.manual_seed(seed)
     
-    device = "cuda"
+    device = resolve_device(config.get("experiments", {}).get("device", "auto"))
     print(f"Using device: {device}")
     
     if limit:

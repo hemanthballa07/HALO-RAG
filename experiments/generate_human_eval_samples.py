@@ -25,6 +25,7 @@ from src.data import load_dataset_from_config, prepare_for_experiments
 from src.pipeline import SelfVerificationRAGPipeline
 from src.evaluation import EvaluationMetrics
 from src.utils.cli import parse_experiment_args
+from src.utils.device import resolve_device
 
 
 def load_config(config_path: str = "config/config.yaml"):
@@ -63,7 +64,7 @@ def generate_human_eval_samples(
     np.random.seed(seed)
     torch.manual_seed(seed)
     
-    device = "cuda"
+    device = resolve_device(config.get("experiments", {}).get("device", "auto"))
     print(f"Using device: {device}")
     
     # Initialize pipeline
@@ -274,4 +275,3 @@ def main():
 
 if __name__ == "__main__":
     samples = main()
-

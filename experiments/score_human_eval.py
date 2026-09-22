@@ -221,7 +221,7 @@ def print_agreement_summary(metrics: Dict[str, Any]) -> None:
     # Confusion matrix
     print("\nConfusion matrix (auto_label → human_label):")
     all_labels = metrics['all_labels']
-    print(f"{'Auto\\Human':<15}", end="")
+    print("Auto\\Human".ljust(15), end="")
     for label in all_labels:
         print(f"{label:<15}", end="")
     print()
@@ -353,4 +353,3 @@ def main():
 
 if __name__ == "__main__":
     metrics = main()
-
