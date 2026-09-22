@@ -12,7 +12,7 @@ The pipeline uses a **two-stage retrieval process**:
 
 ### Stage 2: Reranking (top_k_rerank)
 - **Purpose**: Reorder and filter the retrieved documents
-- **Method**: Cross-encoder reranker (DeBERTa-v3-base on MS MARCO)
+- **Method**: `cross-encoder/ms-marco-MiniLM-L-6-v2`
 - **Parameter**: `top_k_rerank` (default: 5)
 - **Input**: The documents from Stage 1 (top_k_retrieve documents)
 - **Output**: Top k documents from the reranked results
@@ -99,4 +99,3 @@ When re-retrieval strategy runs:
 Both are now configurable via CLI arguments:
 - `--top-k-retrieve`: Override retrieval k
 - `--top-k-rerank`: Override reranking k
-
