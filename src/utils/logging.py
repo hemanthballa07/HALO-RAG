@@ -17,7 +17,7 @@ try:
     WANDB_AVAILABLE = True
 except ImportError:
     WANDB_AVAILABLE = False
-    logger.warning("wandb not available. Logging to W&B will be disabled.")
+    logger.debug("wandb not available; experiment tracking is disabled")
 
 
 def get_commit_hash() -> str:
@@ -165,4 +165,3 @@ def get_timestamp() -> str:
         Timestamp string
     """
     return datetime.now().isoformat()
-

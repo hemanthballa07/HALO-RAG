@@ -159,7 +159,7 @@ training:
 experiments:
   random_seed: 42
   num_runs: 3 # For statistical significance
-  device: "cuda" # Use "cuda" for GPU, "cpu" for CPU
+  device: "auto" # Select CUDA, Apple Silicon (MPS), or CPU at runtime
   mixed_precision: true
 
   # Experiment 5: Self-Consistency Decoding
@@ -178,7 +178,7 @@ experiments:
 # Paths
 paths:
   data_dir: "./data"
-  cache_dir: "~/.cache/huggingface/datasets/" # Cache directory for datasets
+  cache_dir: null # Use the Hugging Face cache, configurable with HF_HOME
   model_cache: "./models"
   results_dir: "./results"
   checkpoint_dir: "./checkpoints"

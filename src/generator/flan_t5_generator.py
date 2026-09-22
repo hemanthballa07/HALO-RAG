@@ -11,6 +11,13 @@ from transformers import (
 from peft import PeftModel, LoraConfig, get_peft_model, TaskType
 from typing import List, Optional, Dict, Any
 
+from src.utils.device import qlora_supported, resolve_device
+
+import logging
+
+
+logger = logging.getLogger(__name__)
+
 
 class FLANT5Generator:
     """
@@ -21,7 +28,7 @@ class FLANT5Generator:
     def __init__(
         self,
         model_name: str = "google/flan-t5-large",
-        device: str = "cuda",
+        device: str = "auto",
         lora_checkpoint: Optional[str] = None,
         use_qlora: bool = True,
         r: int = 16,
@@ -44,6 +51,13 @@ class FLANT5Generator:
             bits: Quantization bits (4 for QLoRA)
             bit_type: Quantization type ("nf4" or "fp4")
         """
+        device = resolve_device(device)
+        if use_qlora and not qlora_supported(device):
+            logger.warning(
+                "QLoRA requires CUDA and bitsandbytes; loading the generator without 4-bit quantization"
+            )
+            use_qlora = False
+
         self.device = device
         self.model_name = model_name
         self.use_qlora = use_qlora
@@ -229,4 +243,3 @@ class FLANT5Generator:
             context = context + verified_text
         
         return self.generate(query, context, **generation_kwargs)
-

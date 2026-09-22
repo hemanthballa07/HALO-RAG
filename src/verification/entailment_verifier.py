@@ -5,9 +5,11 @@ Uses cross-encoder/nli-deberta-v3-base fine-tuned on NLI tasks
 
 import torch
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
-from typing import List, Dict, Tuple, Optional
+from typing import Any, List, Dict, Tuple, Optional
 import numpy as np
 import re
+
+from src.utils.device import resolve_device
 
 
 class EntailmentVerifier:
@@ -19,7 +21,7 @@ class EntailmentVerifier:
     def __init__(
         self,
         model_name: str = "cross-encoder/nli-deberta-v3-base",
-        device: str = "cuda",
+        device: str = "auto",
         threshold: float = 0.75,
         max_length: int = 512
     ):
@@ -32,6 +34,9 @@ class EntailmentVerifier:
             threshold: Entailment threshold (τ)
             max_length: Maximum sequence length
         """
+        if not 0.0 <= threshold <= 1.0:
+            raise ValueError("threshold must be between 0 and 1")
+        device = resolve_device(device)
         self.device = device
         self.threshold = threshold
         self.max_length = max_length
@@ -43,8 +48,26 @@ class EntailmentVerifier:
         self.model.to(device)
         self.model.eval()
         
-        # Label mapping: 0=contradiction, 1=neutral, 2=entailment
-        self.label_map = {0: "contradiction", 1: "neutral", 2: "entailment"}
+        # Read the label order from the checkpoint rather than assuming an MNLI
+        # convention. NLI checkpoints do not all use the same class indices.
+        self.label_map = {
+            int(index): str(label).lower()
+            for index, label in self.model.config.id2label.items()
+        }
+        self.contradiction_index = self._label_index("contradiction")
+        self.entailment_index = self._label_index("entailment")
+        self.neutral_index = self._label_index("neutral")
+
+    def _label_index(self, expected_label: str) -> int:
+        """Return the checkpoint index for an NLI label, failing clearly if absent."""
+        for index, label in self.label_map.items():
+            normalized = label.lower().replace("-", "_").replace(" ", "_")
+            if expected_label in normalized:
+                return index
+        raise ValueError(
+            f"Model label mapping {self.label_map!r} does not define "
+            f"an '{expected_label}' class. Choose an NLI sequence-classification checkpoint."
+        )
     
     def verify_claim(
         self,
@@ -101,7 +124,8 @@ class EntailmentVerifier:
         formatted_normalized = re.sub(r'[^\w\s]', '', formatted_claim.lower())
         
         # Check if all significant words from the claim appear in the context
-        claim_words = set(formatted_normalized.split())
+        formatted_words = formatted_normalized.split()
+        claim_words = set(formatted_words)
         context_words = set(context_normalized.split())
         
         # Remove common stop words for matching
@@ -115,7 +139,10 @@ class EntailmentVerifier:
             # For high overlap, check if the key content appears as a phrase
             if overlap_ratio >= 0.8:
                 # Check if the core claim (without formatting words) appears as a phrase
-                core_claim_words = [w for w in claim_words_clean if w not in {'answer', 'is', 'was', 'are', 'were'}]
+                core_claim_words = [
+                    word for word in formatted_words
+                    if word in claim_words_clean
+                ]
                 if core_claim_words:
                     # Check if these words appear together in context
                     core_phrase = ' '.join(core_claim_words)
@@ -148,9 +175,9 @@ class EntailmentVerifier:
         probs = probs.cpu().numpy()[0]
         
         # Get scores
-        contradiction_score = float(probs[0])
-        neutral_score = float(probs[1])
-        entailment_score = float(probs[2])
+        contradiction_score = float(probs[self.contradiction_index])
+        neutral_score = float(probs[self.neutral_index])
+        entailment_score = float(probs[self.entailment_index])
         
         # If entailment score is very low but the raw claim appears in context,
         # boost the entailment score (the model might be confused by formatting)
@@ -159,10 +186,11 @@ class EntailmentVerifier:
             if len(claim_normalized_raw.split()) <= 5:  # Short answers
                 entailment_score = max(entailment_score, 0.7)
                 # Adjust other scores proportionally
-                total = contradiction_score + neutral_score + entailment_score
-                if total > 0:
-                    contradiction_score = contradiction_score * (1.0 - entailment_score) / (contradiction_score + neutral_score) if (contradiction_score + neutral_score) > 0 else 0.0
-                    neutral_score = neutral_score * (1.0 - entailment_score) / (contradiction_score + neutral_score) if (contradiction_score + neutral_score) > 0 else 0.0
+                other_total = contradiction_score + neutral_score
+                if other_total > 0:
+                    remaining_probability = 1.0 - entailment_score
+                    contradiction_score = contradiction_score * remaining_probability / other_total
+                    neutral_score = neutral_score * remaining_probability / other_total
         
         return {
             "contradiction": contradiction_score,
@@ -285,7 +313,7 @@ class EntailmentVerifier:
         retrieved_contexts: List[str],
         claims: List[str],
         query: Optional[str] = None
-    ) -> Dict[str, any]:
+    ) -> Dict[str, Any]:
         """
         Verify all claims in generated text against retrieved contexts.
         
@@ -309,12 +337,12 @@ class EntailmentVerifier:
         for claim in claims:
             # Get full verification result (contradiction, neutral, entailment scores)
             full_result = self.verify_claim(claim, combined_context, query)
-            is_entailed, score = self.is_entailed(claim, combined_context, query=query)
-            
+
             # Determine label based on scores
             entailment_score = full_result["entailment"]
             contradiction_score = full_result["contradiction"]
             neutral_score = full_result["neutral"]
+            is_entailed = entailment_score >= self.threshold
             
             # Label: highest probability wins, but be more careful about contradiction
             if entailment_score >= self.threshold:
@@ -332,7 +360,7 @@ class EntailmentVerifier:
             verification_results.append({
                 "claim": claim,
                 "is_entailed": is_entailed,
-                "entailment_score": score,
+                "entailment_score": entailment_score,
                 "contradiction_score": contradiction_score,
                 "neutral_score": neutral_score,
                 "label": label,
@@ -360,5 +388,6 @@ class EntailmentVerifier:
     
     def set_threshold(self, threshold: float):
         """Update entailment threshold."""
+        if not 0.0 <= threshold <= 1.0:
+            raise ValueError("threshold must be between 0 and 1")
         self.threshold = threshold
-

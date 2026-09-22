@@ -4,8 +4,8 @@ Implements Recall@K, MRR, NDCG, Coverage, Factual Precision, Verified F1, etc.
 """
 
 import numpy as np
-from typing import List, Dict, Tuple, Optional
-from collections import defaultdict
+from typing import Any, List, Dict, Tuple, Optional
+from collections import Counter
 import re
 
 # For BLEU-4
@@ -31,6 +31,13 @@ class EvaluationMetrics:
     def __init__(self):
         """Initialize evaluation metrics."""
         pass
+
+    @staticmethod
+    def _answer_tokens(text: str) -> List[str]:
+        """Normalize answer text using the standard extractive-QA conventions."""
+        normalized = re.sub(r"[^\w\s]", " ", text.lower())
+        tokens = normalized.split()
+        return [token for token in tokens if token not in {"a", "an", "the"}]
     
     def recall_at_k(
         self,
@@ -177,27 +184,26 @@ class EvaluationMetrics:
         if not answer_text or not retrieved_texts:
             return 0.0
         
-        # Tokenize answer (lowercase, split on whitespace)
-        answer_tokens = set(answer_text.lower().split())
+        answer_tokens = Counter(self._answer_tokens(answer_text))
         
         if len(answer_tokens) == 0:
             return 0.0
         
         # Combine all retrieved texts and tokenize
         combined_retrieved_text = " ".join(retrieved_texts)
-        retrieved_tokens = set(combined_retrieved_text.lower().split())
+        retrieved_tokens = Counter(self._answer_tokens(combined_retrieved_text))
         
         # Find answer tokens that appear in retrieved documents
         answer_tokens_in_retrieved = answer_tokens & retrieved_tokens
         
         # Coverage Index = answer tokens in retrieved / total answer tokens
-        coverage = len(answer_tokens_in_retrieved) / len(answer_tokens)
+        coverage = sum(answer_tokens_in_retrieved.values()) / sum(answer_tokens.values())
         
         return coverage
     
     def factual_precision(
         self,
-        verification_results: List[Dict[str, any]]
+        verification_results: List[Dict[str, Any]]
     ) -> float:
         """
         Compute Factual Precision: fraction of claims that are entailed.
@@ -222,7 +228,7 @@ class EvaluationMetrics:
     
     def factual_recall(
         self,
-        verification_results: List[Dict[str, any]],
+        verification_results: List[Dict[str, Any]],
         ground_truth_claims: List[str],
         retrieved_texts: List[str] = None,
         verifier = None
@@ -272,7 +278,7 @@ class EvaluationMetrics:
     
     def hallucination_rate(
         self,
-        verification_results: List[Dict[str, any]],
+        verification_results: List[Dict[str, Any]],
         abstained: bool = False
     ) -> float:
         """
@@ -344,8 +350,8 @@ class EvaluationMetrics:
         Returns:
             Exact match score (0.0 or 1.0)
         """
-        generated_clean = generated.strip().lower()
-        ground_truth_clean = ground_truth.strip().lower()
+        generated_clean = " ".join(self._answer_tokens(generated))
+        ground_truth_clean = " ".join(self._answer_tokens(ground_truth))
         
         return 1.0 if generated_clean == ground_truth_clean else 0.0
     
@@ -365,13 +371,14 @@ class EvaluationMetrics:
             F1 score
         """
         # Tokenize
-        gen_tokens = set(generated.lower().split())
-        gt_tokens = set(ground_truth.lower().split())
+        gen_tokens = self._answer_tokens(generated)
+        gt_tokens = self._answer_tokens(ground_truth)
         
         if len(gen_tokens) == 0 or len(gt_tokens) == 0:
-            return 0.0
+            return float(not gen_tokens and not gt_tokens)
         
-        intersection = len(gen_tokens & gt_tokens)
+        common = Counter(gen_tokens) & Counter(gt_tokens)
+        intersection = sum(common.values())
         
         precision = intersection / len(gen_tokens) if len(gen_tokens) > 0 else 0.0
         recall = intersection / len(gt_tokens) if len(gt_tokens) > 0 else 0.0
@@ -452,7 +459,7 @@ class EvaluationMetrics:
     
     def fever_score(
         self,
-        verification_results: List[Dict[str, any]],
+        verification_results: List[Dict[str, Any]],
         retrieved_texts: List[str],
         ground_truth: str
     ) -> float:
@@ -488,15 +495,15 @@ class EvaluationMetrics:
         if not ground_truth or not retrieved_texts:
             evidence_recall = 0.0
         else:
-            gt_tokens = set(ground_truth.lower().split())
+            gt_tokens = Counter(self._answer_tokens(ground_truth))
             combined_evidence = " ".join(retrieved_texts).lower()
-            evidence_tokens = set(combined_evidence.split())
+            evidence_tokens = Counter(self._answer_tokens(combined_evidence))
             
             if len(gt_tokens) == 0:
                 evidence_recall = 0.0
             else:
                 gt_tokens_in_evidence = gt_tokens & evidence_tokens
-                evidence_recall = len(gt_tokens_in_evidence) / len(gt_tokens)
+                evidence_recall = sum(gt_tokens_in_evidence.values()) / sum(gt_tokens.values())
         
         # FEVER Score: Harmonic mean of label accuracy and evidence recall
         if label_accuracy + evidence_recall == 0:
@@ -559,7 +566,7 @@ class EvaluationMetrics:
         self,
         retrieved_docs: List[int],
         relevant_docs: List[int],
-        verification_results: List[Dict[str, any]],
+        verification_results: List[Dict[str, Any]],
         generated: str,
         ground_truth: str,
         retrieved_texts: List[str],
@@ -639,4 +646,3 @@ class EvaluationMetrics:
         metrics["abstention_rate"] = self.abstention_rate(generated)
         
         return metrics
-

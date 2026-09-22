@@ -4,7 +4,6 @@ Combines retrieval, reranking, generation, and verification.
 """
 
 from typing import List, Dict, Optional, Tuple, Any
-import torch
 import logging
 
 from src.retrieval import HybridRetriever, CrossEncoderReranker
@@ -12,6 +11,7 @@ from src.generator import FLANT5Generator
 from src.verification import EntailmentVerifier, ClaimExtractor
 from src.revision import AdaptiveRevisionStrategy
 from src.evaluation import EvaluationMetrics
+from src.utils.device import resolve_device
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +38,7 @@ class SelfVerificationRAGPipeline:
         entailment_threshold: float = 0.75,
         dense_weight: float = 0.6,
         sparse_weight: float = 0.4,
-        device: str = "cuda",
+        device: str = "auto",
         use_qlora: bool = True,
         generator_lora_checkpoint: Optional[str] = None,
         enable_revision: bool = True,
@@ -62,6 +62,9 @@ class SelfVerificationRAGPipeline:
             enable_revision: Whether to enable adaptive revision
             max_revision_iterations: Maximum revision iterations
         """
+        if max_revision_iterations < 0:
+            raise ValueError("max_revision_iterations cannot be negative")
+        device = resolve_device(device)
         self.device = device
         self.corpus = corpus
         self.enable_revision = enable_revision
@@ -157,6 +160,10 @@ class SelfVerificationRAGPipeline:
         """
         if max_revision_iterations is None:
             max_revision_iterations = self.max_revision_iterations
+        if max_revision_iterations < 0:
+            raise ValueError("max_revision_iterations cannot be negative")
+        if top_k_retrieve <= 0 or top_k_rerank <= 0:
+            raise ValueError("top_k_retrieve and top_k_rerank must be positive")
         
         # Step 1: Hybrid retrieval
         retrieved_docs = self.retriever.retrieve(query, top_k=top_k_retrieve)
@@ -173,6 +180,8 @@ class SelfVerificationRAGPipeline:
         # Map back to original IDs using original_index
         reranked_ids = [retrieved_ids[doc[0]] for doc in reranked_docs]
         reranked_texts = [doc[1] for doc in reranked_docs]
+        initial_retrieved_ids = retrieved_ids.copy()
+        initial_reranked_ids = reranked_ids.copy()
         context = " ".join(reranked_texts)
         
         # Step 3: Generation
@@ -242,6 +251,7 @@ class SelfVerificationRAGPipeline:
                     revised_claims = self.claim_extractor.extract_claims(revised_text)
                     
                     # Get context after revision from strategy metadata
+                    evidence_contexts = strategy_metadata.get("evidence_contexts", [])
                     contexts_after = strategy_metadata.get("contexts_used", [])
                     context_after_summary = strategy_metadata.get("context_summary") or strategy_metadata.get("constraint_summary") or strategy_metadata.get("replacement_summary") or "Contexts used in revision"
                     
@@ -249,8 +259,8 @@ class SelfVerificationRAGPipeline:
                     # The prompt_used contains the context, but we can also reconstruct it
                     if strategy_metadata.get("strategy_name") == "re_retrieval":
                         # Extract context from prompt_used or use contexts_after
-                        if contexts_after:
-                            context_after_text = " ".join(contexts_after[:3])  # Join first 3 contexts
+                        if evidence_contexts:
+                            context_after_text = " ".join(evidence_contexts[:3])
                         else:
                             # Fallback: extract from prompt if available
                             prompt = strategy_metadata.get("prompt_used", "")
@@ -260,7 +270,10 @@ class SelfVerificationRAGPipeline:
                                 context_after_text = "Context retrieved with expanded query"
                     else:
                         # For other strategies, use the contexts from metadata
-                        context_after_text = " ".join(contexts_after[:3]) if contexts_after else context_after_summary
+                        context_after_text = (
+                            " ".join(evidence_contexts[:3])
+                            if evidence_contexts else context_after_summary
+                        )
                     
                     # Compare verification results to show what changed
                     verification_comparison = self._compare_verification_results(
@@ -300,6 +313,17 @@ class SelfVerificationRAGPipeline:
                         revision_info["replacement_summary"] = strategy_metadata.get("replacement_summary", None)
                     
                     revision_history.append(revision_info)
+
+                    # A revision may use newly retrieved evidence. Keep the final
+                    # result and downstream metrics aligned with that evidence.
+                    if evidence_contexts:
+                        document_ids = strategy_metadata.get("document_ids", [])
+                        retrieved_texts = evidence_contexts
+                        reranked_texts = evidence_contexts
+                        context = " ".join(evidence_contexts)
+                        if document_ids:
+                            retrieved_ids = document_ids
+                            reranked_ids = document_ids
                     
                     generated_text = revised_text
                     verification_results = new_verification
@@ -329,8 +353,10 @@ class SelfVerificationRAGPipeline:
             "query": query,
             "generated_text": generated_text,
             "retrieved_docs": retrieved_ids,
+            "initial_retrieved_docs": initial_retrieved_ids,
             "retrieved_texts": retrieved_texts,  # Store for coverage calculation
             "reranked_docs": reranked_ids,  # Use mapped IDs
+            "initial_reranked_docs": initial_reranked_ids,
             "reranked_texts": reranked_texts,  # Store for coverage calculation
             "context": context,
             "claims": claims,
@@ -369,6 +395,8 @@ class SelfVerificationRAGPipeline:
         # Use reranked_texts for coverage (top-k documents used for generation)
         # Get abstention flag from results
         abstained = results.get("abstained", False)
+        if ground_truth_claims is None:
+            ground_truth_claims = self.claim_extractor.extract_claims(ground_truth)
         
         metrics = self.evaluator.compute_all_metrics(
             retrieved_docs=results["retrieved_docs"],
@@ -378,6 +406,7 @@ class SelfVerificationRAGPipeline:
             ground_truth=ground_truth,
             retrieved_texts=results.get("reranked_texts", results.get("retrieved_texts", [])),
             ground_truth_claims=ground_truth_claims,
+            verifier=self.verifier,
             abstained=abstained  # Pass abstention flag to exclude from hallucination_rate
         )
         
@@ -480,4 +509,3 @@ class SelfVerificationRAGPipeline:
             "num_unchanged": num_unchanged,
             "summary": summary
         }
-

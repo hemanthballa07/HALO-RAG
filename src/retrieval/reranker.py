@@ -4,7 +4,7 @@ Cross-Encoder Reranking Module using DeBERTa-v3-base on MS MARCO
 
 from sentence_transformers import CrossEncoder
 from typing import List, Tuple, Optional
-import torch
+from src.utils.device import resolve_device
 
 
 class CrossEncoderReranker:
@@ -16,7 +16,7 @@ class CrossEncoderReranker:
     def __init__(
         self,
         model_name: str = "cross-encoder/ms-marco-MiniLM-L-6-v2",
-        device: str = "cuda",
+        device: str = "auto",
         max_length: int = 512
     ):
         """
@@ -27,6 +27,7 @@ class CrossEncoderReranker:
             device: Device to run model on
             max_length: Maximum sequence length
         """
+        device = resolve_device(device)
         self.device = device
         self.max_length = max_length
         self.model = CrossEncoder(
@@ -52,7 +53,7 @@ class CrossEncoderReranker:
         Returns:
             List of (original_index, document, score) tuples sorted by score
         """
-        if len(documents) == 0:
+        if len(documents) == 0 or (top_k is not None and top_k <= 0):
             return []
         
         # Create query-document pairs
@@ -101,6 +102,8 @@ class CrossEncoderReranker:
         """
         if len(documents) != len(document_ids):
             raise ValueError("document_ids and documents must have same length")
+        if top_k is not None and top_k <= 0:
+            return []
         
         # Rerank
         reranked = self.rerank(query, documents, top_k=None)
@@ -115,4 +118,3 @@ class CrossEncoderReranker:
             results = results[:top_k]
         
         return results
-
