@@ -1,35 +1,39 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-# Script to download and cache models
+HALO_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+HALO_PYTHON_BIN="${HALO_PYTHON_BIN:-python3}"
 
-echo "Downloading and caching models..."
+cd "$HALO_PROJECT_ROOT"
 
-# Create models directory
-mkdir -p models
+"$HALO_PYTHON_BIN" - <<'PY'
+from sentence_transformers import CrossEncoder, SentenceTransformer
+from transformers import (
+    AutoModelForSeq2SeqLM,
+    AutoModelForSequenceClassification,
+    AutoTokenizer,
+)
 
-# Download models (will be cached by transformers)
-python << EOF
-from sentence_transformers import SentenceTransformer
-from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, AutoModelForSequenceClassification
-import spacy
+models = {
+    "retriever": "sentence-transformers/all-mpnet-base-v2",
+    "reranker": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+    "generator": "google/flan-t5-large",
+    "verifier": "cross-encoder/nli-deberta-v3-base",
+}
 
-print("Downloading sentence transformer...")
-model = SentenceTransformer('sentence-transformers/all-mpnet-base-v2')
+print(f"Downloading {models['retriever']}")
+SentenceTransformer(models["retriever"])
 
-print("Downloading cross-encoder...")
-from sentence_transformers import CrossEncoder
-reranker = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
+print(f"Downloading {models['reranker']}")
+CrossEncoder(models["reranker"])
 
-print("Downloading FLAN-T5...")
-tokenizer = AutoTokenizer.from_pretrained('google/flan-t5-large')
-model = AutoModelForSeq2SeqLM.from_pretrained('google/flan-t5-large')
+print(f"Downloading {models['generator']}")
+AutoTokenizer.from_pretrained(models["generator"])
+AutoModelForSeq2SeqLM.from_pretrained(models["generator"])
 
-print("Downloading DeBERTa...")
-tokenizer = AutoTokenizer.from_pretrained('microsoft/deberta-v3-large')
-model = AutoModelForSequenceClassification.from_pretrained('microsoft/deberta-v3-large')
+print(f"Downloading {models['verifier']}")
+AutoTokenizer.from_pretrained(models["verifier"])
+AutoModelForSequenceClassification.from_pretrained(models["verifier"])
 
-print("Models downloaded successfully!")
-EOF
-
-echo "Model download complete!"
-
+print("All configured models are cached.")
+PY
