@@ -21,6 +21,7 @@ sys.path.insert(0, str(project_root))
 import yaml
 from experiments.final_result_reader import RESULT_FILES, load_metrics
 from src.utils import get_commit_hash, get_timestamp
+from src.utils.device import qlora_supported, resolve_device
 
 
 def load_config(config_path: str = "config/config.yaml"):
@@ -31,6 +32,35 @@ def load_config(config_path: str = "config/config.yaml"):
     with path.open(encoding="utf-8") as f:
         config = yaml.safe_load(f)
     return config
+
+
+def training_iterations(config: dict) -> int:
+    """Read the configured number of Exp6 fine-tuning iterations."""
+    iterations = config.get("experiments", {}).get("exp6", {}).get("iterations", 3)
+    if isinstance(iterations, bool) or not isinstance(iterations, int) or iterations < 0:
+        raise ValueError("Experiment 6 iterations must be a nonnegative integer")
+    return iterations
+
+
+def check_training_readiness(config: dict, experiments: list[str],
+                             split: str, diagnostic: bool) -> None:
+    """Reject unsupported Exp6 runs before starting other experiments."""
+    if "exp6_iterative_training" not in experiments:
+        return
+    if split != "validation":
+        raise ValueError("Experiment 6 evaluates only the validation split")
+    iterations = training_iterations(config)
+    if iterations == 0:
+        if not diagnostic:
+            raise ValueError("A full run requires at least one Experiment 6 training iteration")
+        return
+    device = resolve_device(config.get("experiments", {}).get("device", "auto"))
+    if not qlora_supported(device):
+        raise RuntimeError(
+            "Experiment 6 needs CUDA and bitsandbytes for QLoRA training "
+            f"(resolved device: {device}). Use a supported CUDA host or omit "
+            "Experiment 6 from diagnostic runs."
+        )
 
 
 def extract_numeric_metrics(payload: Dict[str, Any]) -> Dict[str, float]:
@@ -101,7 +131,8 @@ def aggregate_results_across_seeds(experiments: List[str], seeds: List[int],
                                    config_path: str = "config/config.yaml",
                                    split: str = "validation", limit: int = None,
                                    dry_run: bool = False, threshold: float = 0.75,
-                                   archive_dir: Path | None = None) -> tuple[dict, list[str], dict]:
+                                   archive_dir: Path | None = None,
+                                   expected_iterations: int | None = None) -> tuple[dict, list[str], dict]:
     """
     Run experiments with multiple seeds and aggregate results.
     
@@ -150,6 +181,7 @@ def aggregate_results_across_seeds(experiments: List[str], seeds: List[int],
                 metrics = load_metrics(
                     artifact_path, exp_name, threshold,
                     expected_seed=seed, expected_split=split,
+                    expected_iterations=expected_iterations,
                 )
                 if seed_results and metrics.keys() != seed_results[0].keys():
                     raise ValueError("metric names differ from earlier seeds")
@@ -327,6 +359,14 @@ def main():
     threshold = float(config["verification"]["threshold"])
     if not 0 <= threshold <= 1:
         parser.error("configured verification threshold must be between 0 and 1")
+    diagnostic = (
+        args.dry_run or args.limit is not None or len(args.seeds) < 3
+        or set(args.experiments) != set(RESULT_FILES)
+    )
+    try:
+        check_training_readiness(config, args.experiments, args.split, diagnostic)
+    except (ValueError, RuntimeError) as exc:
+        parser.error(str(exc))
     run_id = datetime.now().strftime("%Y%m%dT%H%M%S") + "-" + uuid4().hex[:8]
     archive_dir = project_root / "results/metrics/final_runs" / run_id
     
@@ -349,13 +389,12 @@ def main():
         dry_run=args.dry_run,
         threshold=threshold,
         archive_dir=archive_dir,
+        expected_iterations=(
+            training_iterations(config) if "exp6_iterative_training" in args.experiments else None
+        ),
     )
     if hashlib.sha256(config_path.read_bytes()).hexdigest() != config_hash:
         failures.append("configuration changed during the run")
-    diagnostic = (
-        args.dry_run or args.limit is not None or len(args.seeds) < 3
-        or set(args.experiments) != set(RESULT_FILES)
-    )
     if args.copy_plots and not failures and not diagnostic:
         missing_plots = copy_key_plots_to_final()
         failures.extend(f"missing plot: {path}" for path in missing_plots)

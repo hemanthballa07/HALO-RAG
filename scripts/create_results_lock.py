@@ -95,6 +95,11 @@ def validate_manifest(manifest_path: Path, root: Path) -> dict:
             float(manifest["selected_threshold"]), abs_tol=1e-12,
         ):
             raise ValueError("manifest threshold disagrees with configuration")
+        expected_iterations = config.get("experiments", {}).get("exp6", {}).get("iterations", 3)
+        if (isinstance(expected_iterations, bool)
+                or not isinstance(expected_iterations, int)
+                or expected_iterations <= 0):
+            raise ValueError("release requires positive Experiment 6 training iterations")
 
         artifacts = manifest["artifacts"]
         aggregated = manifest["aggregated_results"]
@@ -118,6 +123,7 @@ def validate_manifest(manifest_path: Path, root: Path) -> dict:
                 parsed_metrics = load_metrics(
                     artifact_path, experiment, float(manifest["selected_threshold"]),
                     expected_seed=seed, expected_split=manifest["split"],
+                    expected_iterations=expected_iterations,
                 )
                 if parsed_metrics != record["metrics"]:
                     raise ValueError(f"{experiment} seed {seed} metrics disagree with archived JSON")

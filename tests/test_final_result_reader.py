@@ -219,3 +219,51 @@ def test_configuration_change_marks_run_incomplete(tmp_path, monkeypatch):
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert manifest["status"] == "incomplete"
     assert "configuration changed during the run" in manifest["failures"]
+
+
+def test_runner_checks_training_hardware_before_creating_a_run(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(runner, "project_root", tmp_path)
+    config = tmp_path / "config/config.yaml"
+    config.parent.mkdir(parents=True)
+    config.write_text(
+        "verification:\n  threshold: 0.75\n"
+        "datasets:\n  active: squad_v2\n"
+        "experiments:\n  device: auto\n  exp6:\n    iterations: 3\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(runner, "resolve_device", lambda _preferred: "cpu")
+    monkeypatch.setattr(runner, "qlora_supported", lambda _device: False)
+    monkeypatch.setattr(sys, "argv", [
+        "run_final_experiments.py", "--experiments", "exp1_baseline",
+        "exp6_iterative_training", "--dry-run",
+    ])
+
+    with pytest.raises(SystemExit) as exc:
+        runner.main()
+
+    assert exc.value.code == 2
+    assert "needs CUDA and bitsandbytes" in capsys.readouterr().err
+    assert not (tmp_path / "results/metrics/final_runs").exists()
+
+
+def test_full_run_requires_training_iterations():
+    config = {"experiments": {"exp6": {"iterations": 0}}}
+    with pytest.raises(ValueError, match="at least one"):
+        runner.check_training_readiness(config, ["exp6_iterative_training"],
+                                        "validation", diagnostic=False)
+    runner.check_training_readiness(config, ["exp6_iterative_training"],
+                                    "validation", diagnostic=True)
+
+
+def test_reader_rejects_a_short_training_artifact(tmp_path):
+    artifact = tmp_path / "exp6.json"
+    artifact.write_text(json.dumps({
+        "metadata": {"seed": 42, "split": "validation", "sample_limit": 2,
+                     "total_queries": 2},
+        "iteration_results": {"1": {"metrics": {"f1_score": 0.5}}},
+        "total_iterations": 1,
+    }), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="do not match configured 3"):
+        load_metrics(artifact, "exp6_iterative_training", 0.75, expected_seed=42,
+                     expected_split="validation", expected_iterations=3)

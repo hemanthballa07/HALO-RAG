@@ -218,6 +218,7 @@ Collects verified data (FP ≥ 0.85) and fine-tunes FLAN-T5 iteratively.
 
 This experiment requires CUDA and `bitsandbytes`; it intentionally exits before model
 loading when those requirements are unavailable.
+The final experiment runner checks this before starting any of the eight experiments.
 
 **Features**:
 - Collect verified training data with Factual Precision ≥ 0.85

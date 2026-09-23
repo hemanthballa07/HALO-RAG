@@ -719,6 +719,8 @@ def main():
     iterations = args.iterations
     if iterations is None:
         iterations = config.get("experiments", {}).get("exp6", {}).get("iterations", 3)
+    if isinstance(iterations, bool) or not isinstance(iterations, int) or iterations < 0:
+        parser.error("--iterations must be a nonnegative integer")
     device = resolve_device(config.get("experiments", {}).get("device", "auto"))
     if iterations > 0 and not qlora_supported(device):
         raise RuntimeError(

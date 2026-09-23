@@ -73,7 +73,8 @@ def select_metrics(experiment_name: str, payload: dict, threshold: float) -> dic
 
 
 def load_metrics(path: Path, experiment_name: str, threshold: float,
-                 expected_seed: int | None = None, expected_split: str | None = None) -> dict[str, float]:
+                 expected_seed: int | None = None, expected_split: str | None = None,
+                 expected_iterations: int | None = None) -> dict[str, float]:
     with path.open(encoding="utf-8") as handle:
         payload = json.load(handle)
     if not isinstance(payload, dict):
@@ -97,6 +98,14 @@ def load_metrics(path: Path, experiment_name: str, threshold: float,
             raise ValueError(f"artifact seed {metadata['seed']} does not match {expected_seed}")
         if expected_split is not None and metadata["split"] != expected_split:
             raise ValueError(f"artifact split {metadata['split']} does not match {expected_split}")
+        if experiment_name == "exp6_iterative_training" and expected_iterations is not None:
+            actual_iterations = payload.get("total_iterations")
+            if (isinstance(actual_iterations, bool) or not isinstance(actual_iterations, int)
+                    or actual_iterations != expected_iterations):
+                raise ValueError(
+                    f"artifact iterations {actual_iterations} do not match "
+                    f"configured {expected_iterations}"
+                )
         return select_metrics(experiment_name, payload, threshold)
     except (KeyError, TypeError, ValueError) as exc:
         raise ValueError(f"invalid {experiment_name} result in {path}: {exc}") from exc

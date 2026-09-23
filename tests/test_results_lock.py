@@ -26,8 +26,8 @@ def artifact_payload(experiment, seed, value):
         "exp4_revision_strategies": {"revision_metrics": metric},
         "exp5_self_consistency": {"aggregated_metrics": {"self_consistency": metric}},
         "exp6_iterative_training": {
-            "iteration_results": {"1": {"metrics": {"f1_score": value}}},
-            "total_iterations": 1,
+            "iteration_results": {"3": {"metrics": {"f1_score": value}}},
+            "total_iterations": 3,
         },
         "exp7_ablation_study": {"aggregated": {"full": metric}},
         "exp8_stress_test": {"baseline": {"f1_score": value}},
@@ -160,4 +160,38 @@ def test_manifest_metrics_must_match_archived_json(tmp_path):
     canonical.write_text(json.dumps(manifest), encoding="utf-8")
 
     with pytest.raises(ValueError, match="metrics disagree with archived JSON"):
+        create_results_lock(manifest_path, tmp_path / "RESULTS_LOCK.md", root=tmp_path)
+
+
+def test_release_rejects_zero_training_iterations(tmp_path):
+    manifest_path = complete_run(tmp_path)
+    config = tmp_path / "config/config.yaml"
+    config.write_text(config.read_text(encoding="utf-8") +
+                      "experiments:\n  exp6:\n    iterations: 0\n", encoding="utf-8")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["config_sha256"] = hash_file(config)
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    (tmp_path / "results/metrics/final_aggregated_results.json").write_text(
+        json.dumps(manifest), encoding="utf-8"
+    )
+
+    with pytest.raises(ValueError, match="positive Experiment 6 training iterations"):
+        create_results_lock(manifest_path, tmp_path / "RESULTS_LOCK.md", root=tmp_path)
+
+
+def test_release_rejects_wrong_training_iteration_artifact(tmp_path):
+    manifest_path = complete_run(tmp_path)
+    artifact = manifest_path.parent / "exp6_iterative_training_seed42.json"
+    payload = json.loads(artifact.read_text(encoding="utf-8"))
+    payload["total_iterations"] = 1
+    payload["iteration_results"] = {"1": {"metrics": {"f1_score": 0.042}}}
+    artifact.write_text(json.dumps(payload), encoding="utf-8")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["artifacts"]["exp6_iterative_training"]["42"]["sha256"] = hash_file(artifact)
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    (tmp_path / "results/metrics/final_aggregated_results.json").write_text(
+        json.dumps(manifest), encoding="utf-8"
+    )
+
+    with pytest.raises(ValueError, match="do not match configured 3"):
         create_results_lock(manifest_path, tmp_path / "RESULTS_LOCK.md", root=tmp_path)

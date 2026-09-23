@@ -79,11 +79,16 @@ For an individual pipeline call, `generate(question, evidence_limit=1,
 abstain_if_unanswered=True, do_sample=False)` enables the same experimental
 prompt. The default behavior is unchanged.
 
-Run the complete experiment sequence:
+On a CUDA host, run a diagnostic pass through all eight experiments:
 
 ```bash
 python experiments/run_final_experiments.py --dry-run
 ```
+
+This command includes Experiment 6 and requires `bitsandbytes`.
+The runner checks that requirement before starting any experiment. On a CPU or
+Apple Silicon host, use `--experiments` to select non-training diagnostics.
+Release runs also require a positive Experiment 6 iteration count in the config.
 
 The runner archives the JSON produced for each seed under
 `results/metrics/final_runs/`. Failed, incomplete, dry, limited, or partial
