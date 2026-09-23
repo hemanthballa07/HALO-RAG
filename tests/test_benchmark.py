@@ -1,7 +1,10 @@
 """Behavioral checks for reproducible question-answering benchmarks."""
 
+import json
+
 import pytest
 
+from experiments.summarize_paired_benchmarks import combine_runs
 from src.evaluation.benchmark import build_benchmark, score_answer, summarize_results
 from src.evaluation.metrics import EvaluationMetrics
 
@@ -92,3 +95,84 @@ def test_summary_reports_answerable_and_unanswerable_separately():
     assert summary["unanswerable"]["unanswerable_answer_rate"] == 0.5
     assert summary["overall"]["verified_nonexact_rate"] == 0.25
     assert summary["answerable"]["false_accept_rate"] is None
+
+
+def test_combined_benchmarks_keep_splits_pairs_and_latency(tmp_path):
+    def make_row(example_id, answerable, correct, verified, abstained, latency):
+        return {
+            "example_id": example_id,
+            "answerable": answerable,
+            "exact_match": float(correct),
+            "f1": float(correct),
+            "retrieval_hit": 1.0,
+            "evidence_hit": 1.0,
+            "verified": verified,
+            "abstained": abstained,
+            "generated": "" if abstained else "answer",
+            "latency_seconds": latency,
+        }
+
+    paths = []
+    for seed in (1, 2):
+        answer_id, no_answer_id = f"{seed}-answer", f"{seed}-no-answer"
+        rows = {
+            "baseline": [
+                make_row(answer_id, True, True, True, False, 2.0),
+                make_row(no_answer_id, False, False, True, False, 4.0),
+            ],
+            "revision": [
+                make_row(answer_id, True, True, True, False, 3.0),
+                make_row(no_answer_id, False, True, False, True, 5.0),
+            ],
+            "focused": [
+                make_row(answer_id, True, True, True, False, 1.0),
+                make_row(no_answer_id, False, seed == 1, False, seed == 1, 1.5),
+            ],
+        }
+        payload = {
+            "metadata": {
+                "dataset": "squad_v2", "split": "validation", "corpus_size": 100,
+                "top_k_retrieve": 20, "top_k_rerank": 5, "max_revisions": 1,
+                "config_sha256": "config", "models": {"generator": "test"},
+                "package_versions": {"torch": "test"},
+                "seed": seed, "question_count": 2,
+                "question_ids": [answer_id, no_answer_id],
+            },
+            "cases": rows,
+            "summary": {},
+        }
+        path = tmp_path / f"seed-{seed}.json"
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        paths.append(path)
+
+    result = combine_runs(paths)
+
+    assert result["summary"]["focused"]["overall"]["exact_match"] == 0.75
+    assert result["summary"]["focused"]["unanswerable"]["false_accept_rate"] == 0.0
+    assert result["summary"]["focused"]["overall"]["latency_p95_seconds"] == 1.5
+    assert result["paired_vs_baseline"]["focused"]["improved"] == 1
+    assert result["duplicate_question_ids_across_runs"] == []
+
+
+def test_combined_benchmarks_reject_protocol_changes(tmp_path):
+    first = {
+        "metadata": {
+            "dataset": "squad_v2", "split": "validation", "corpus_size": 100,
+            "top_k_retrieve": 20, "top_k_rerank": 5, "max_revisions": 1,
+            "config_sha256": "config", "models": {},
+            "package_versions": {"torch": "test"}, "seed": 1,
+            "question_count": 1, "question_ids": ["one"],
+        },
+        "cases": {"baseline": [{"example_id": "one"}]},
+        "summary": {},
+    }
+    second = json.loads(json.dumps(first))
+    second["metadata"]["seed"] = 2
+    second["metadata"]["corpus_size"] = 200
+    first_path = tmp_path / "first.json"
+    second_path = tmp_path / "second.json"
+    first_path.write_text(json.dumps(first), encoding="utf-8")
+    second_path.write_text(json.dumps(second), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="incompatible benchmark protocol"):
+        combine_runs([first_path, second_path])
