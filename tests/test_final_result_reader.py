@@ -127,6 +127,73 @@ def test_runner_rejects_a_success_without_new_artifact(tmp_path, monkeypatch):
     assert artifacts["exp1_baseline"] == {}
 
 
+@pytest.mark.parametrize("write_plot", [False, True])
+def test_runner_requires_a_fresh_plot_for_each_seed(tmp_path, monkeypatch, write_plot):
+    monkeypatch.setattr(runner, "project_root", tmp_path)
+    source = tmp_path / "results/metrics" / RESULT_FILES["exp2_retrieval_comparison"]
+    source.parent.mkdir(parents=True)
+    plot = tmp_path / "results/figures/exp2_retrieval_bars.png"
+    plot.parent.mkdir(parents=True)
+    plot.write_bytes(b"old plot")
+
+    def run_experiment(_name, seed, *_args):
+        source.write_text(json.dumps({
+            "metadata": {"seed": seed, "split": "validation", "sample_limit": None,
+                         "total_queries": 10},
+            "aggregated_metrics": {"hybrid_rerank": {"f1_score": {"mean": 0.5}}},
+        }), encoding="utf-8")
+        if write_plot:
+            plot.write_bytes(b"new plot")
+        return {"status": "success"}
+
+    monkeypatch.setattr(runner, "run_experiment", run_experiment)
+    results, failures, artifacts = runner.aggregate_results_across_seeds(
+        ["exp2_retrieval_comparison"], [42], archive_dir=tmp_path / "archive",
+        require_plots=True,
+    )
+
+    if write_plot:
+        assert failures == []
+        assert results["exp2_retrieval_comparison"]["f1_score"]["values"] == [0.5]
+        assert "42" in artifacts["exp2_retrieval_comparison"]
+    else:
+        assert failures == [
+            "exp2_retrieval_comparison (seed 42): no fresh plot exp2_retrieval_bars.png"
+        ]
+        assert results == {}
+        assert artifacts["exp2_retrieval_comparison"] == {}
+
+
+def test_runner_rejects_a_plot_missing_from_a_later_seed(tmp_path, monkeypatch):
+    monkeypatch.setattr(runner, "project_root", tmp_path)
+    source = tmp_path / "results/metrics" / RESULT_FILES["exp2_retrieval_comparison"]
+    source.parent.mkdir(parents=True)
+    plot = tmp_path / "results/figures/exp2_retrieval_bars.png"
+    plot.parent.mkdir(parents=True)
+
+    def run_experiment(_name, seed, *_args):
+        source.write_text(json.dumps({
+            "metadata": {"seed": seed, "split": "validation", "sample_limit": None,
+                         "total_queries": 10},
+            "aggregated_metrics": {"hybrid_rerank": {"f1_score": {"mean": seed / 100}}},
+        }), encoding="utf-8")
+        if seed == 42:
+            plot.write_bytes(b"first seed")
+        return {"status": "success"}
+
+    monkeypatch.setattr(runner, "run_experiment", run_experiment)
+    results, failures, artifacts = runner.aggregate_results_across_seeds(
+        ["exp2_retrieval_comparison"], [42, 123], archive_dir=tmp_path / "archive",
+        require_plots=True,
+    )
+
+    assert failures == [
+        "exp2_retrieval_comparison (seed 123): no fresh plot exp2_retrieval_bars.png"
+    ]
+    assert results["exp2_retrieval_comparison"]["f1_score"]["values"] == [0.42]
+    assert list(artifacts["exp2_retrieval_comparison"]) == ["42"]
+
+
 def test_runner_records_the_subprocess_failure_reason(tmp_path, monkeypatch):
     monkeypatch.setattr(runner, "project_root", tmp_path)
     monkeypatch.setattr(

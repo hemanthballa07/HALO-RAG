@@ -33,8 +33,10 @@ python experiments/run_final_experiments.py --seeds 42 123 456 --split validatio
 
 The runner creates `results/metrics/final_summary.csv` and
 `results/metrics/final_aggregated_results.json`. A successful multi-seed summary should
-report `n=3` per metric. When `--skip-runs` is used, the latest artifact is deliberately
-treated as a single observation because individual experiment files are not seed-indexed.
+report `n=3` per metric. Use `--copy-plots` to publish the six key figures only when
+each seed has produced fresh metrics and its associated plot. Existing figures from
+earlier runs do not satisfy this check. `--skip-runs` is no longer supported because
+single experiment files cannot establish per-seed provenance.
 
 The root `final_run_results.zip` is a pre-correction historical archive. It remains in the
 repository for provenance, but its metrics should not be cited as current HALO-RAG results.

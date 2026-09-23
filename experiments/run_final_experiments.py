@@ -23,6 +23,15 @@ from experiments.final_result_reader import RESULT_FILES, load_metrics
 from src.utils import get_timestamp
 from src.utils.device import qlora_supported, resolve_device
 
+PLOT_FILES = {
+    "exp2_retrieval_comparison": ("exp2_retrieval_bars.png", "retrieval_bars.png"),
+    "exp3_threshold_tuning": ("exp3_verified_f1_vs_tau.png", "tau_sweep.png"),
+    "exp5_self_consistency": ("exp5_decoding_comparison.png", "decoding_comparison.png"),
+    "exp6_iterative_training": ("exp6_iteration_curves.png", "iteration_curves.png"),
+    "exp7_ablation_study": ("exp7_ablation_bars.png", "ablation_bars.png"),
+    "exp8_stress_test": ("exp8_pareto_frontier.png", "pareto_frontier.png"),
+}
+
 
 def load_config(config_path: str = "config/config.yaml"):
     """Load configuration."""
@@ -157,7 +166,8 @@ def aggregate_results_across_seeds(experiments: List[str], seeds: List[int],
                                    dry_run: bool = False, threshold: float = 0.75,
                                    archive_dir: Path | None = None,
                                    expected_iterations: int | None = None,
-                                   expected_commit: str | None = None) -> tuple[dict, list[str], dict]:
+                                   expected_commit: str | None = None,
+                                   require_plots: bool = False) -> tuple[dict, list[str], dict]:
     """
     Run experiments with multiple seeds and aggregate results.
     
@@ -191,6 +201,9 @@ def aggregate_results_across_seeds(experiments: List[str], seeds: List[int],
         for seed in seeds:
             artifact_path = project_root / "results/metrics" / RESULT_FILES[exp_name]
             before = artifact_signature(artifact_path)
+            plot_name = PLOT_FILES[exp_name][0] if require_plots and exp_name in PLOT_FILES else None
+            plot_path = project_root / "results/figures" / plot_name if plot_name else None
+            plot_before = artifact_signature(plot_path) if plot_path else None
             run_result = run_experiment(exp_name, seed, config_path, split, limit, dry_run)
             if run_result["status"] != "success":
                 failures.append(
@@ -201,6 +214,9 @@ def aggregate_results_across_seeds(experiments: List[str], seeds: List[int],
             after = artifact_signature(artifact_path)
             if after is None or after == before:
                 failures.append(f"{exp_name} (seed {seed}): no fresh metrics artifact")
+                continue
+            if plot_path and (artifact_signature(plot_path) in (None, plot_before)):
+                failures.append(f"{exp_name} (seed {seed}): no fresh plot {plot_name}")
                 continue
             try:
                 metrics = load_metrics(
@@ -308,14 +324,7 @@ def copy_key_plots_to_final(output_dir: str = "results/figures/final") -> List[s
         Source paths for plots that were not produced
     """
     # Define key plots to copy
-    key_plots = [
-        ("exp2_retrieval_bars.png", "retrieval_bars.png"),
-        ("exp3_verified_f1_vs_tau.png", "tau_sweep.png"),
-        ("exp5_decoding_comparison.png", "decoding_comparison.png"),
-        ("exp6_iteration_curves.png", "iteration_curves.png"),
-        ("exp8_pareto_frontier.png", "pareto_frontier.png"),
-        ("exp7_ablation_bars.png", "ablation_bars.png"),
-    ]
+    key_plots = list(PLOT_FILES.values())
     
     figures_dir = project_root / "results/figures"
     target_dir = Path(output_dir)
@@ -428,6 +437,7 @@ def main():
             training_iterations(config) if "exp6_iterative_training" in args.experiments else None
         ),
         expected_commit=run_commit if not diagnostic else None,
+        require_plots=args.copy_plots and not diagnostic,
     )
     if hashlib.sha256(config_path.read_bytes()).hexdigest() != config_hash:
         failures.append("configuration changed during the run")
