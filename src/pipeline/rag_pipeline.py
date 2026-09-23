@@ -140,6 +140,8 @@ class SelfVerificationRAGPipeline:
         temperature: Optional[float] = None,
         do_sample: Optional[bool] = None,
         num_beams: Optional[int] = None,
+        evidence_limit: Optional[int] = None,
+        abstain_if_unanswered: bool = False,
         **generation_kwargs
     ) -> Dict[str, Any]:
         """
@@ -153,6 +155,8 @@ class SelfVerificationRAGPipeline:
             temperature: Sampling temperature (overrides config)
             do_sample: Whether to use sampling (overrides config)
             num_beams: Number of beams for beam search (overrides config)
+            evidence_limit: Maximum number of reranked passages sent to generation
+            abstain_if_unanswered: Let the generator return an explicit no-answer marker
             **generation_kwargs: Additional generation parameters
         
         Returns:
@@ -164,6 +168,8 @@ class SelfVerificationRAGPipeline:
             raise ValueError("max_revision_iterations cannot be negative")
         if top_k_retrieve <= 0 or top_k_rerank <= 0:
             raise ValueError("top_k_retrieve and top_k_rerank must be positive")
+        if evidence_limit is not None and evidence_limit <= 0:
+            raise ValueError("evidence_limit must be positive")
         
         # Step 1: Hybrid retrieval
         retrieved_docs = self.retriever.retrieve(query, top_k=top_k_retrieve)
@@ -180,6 +186,9 @@ class SelfVerificationRAGPipeline:
         # Map back to original IDs using original_index
         reranked_ids = [retrieved_ids[doc[0]] for doc in reranked_docs]
         reranked_texts = [doc[1] for doc in reranked_docs]
+        if evidence_limit is not None:
+            reranked_ids = reranked_ids[:evidence_limit]
+            reranked_texts = reranked_texts[:evidence_limit]
         initial_retrieved_ids = retrieved_ids.copy()
         initial_reranked_ids = reranked_ids.copy()
         context = " ".join(reranked_texts)
@@ -193,29 +202,41 @@ class SelfVerificationRAGPipeline:
             gen_kwargs["do_sample"] = do_sample
         if num_beams is not None:
             gen_kwargs["num_beams"] = num_beams
+        if abstain_if_unanswered:
+            gen_kwargs["abstain_if_unanswered"] = True
         gen_kwargs.update(generation_kwargs)
         
         generated_text = self.generator.generate(query, context, **gen_kwargs)
         
-        # Step 4: Claim extraction
-        claims = self.claim_extractor.extract_claims(generated_text)
-        
-        # Step 5: Verification
-        verification_results = self.verifier.verify_generation(
-            generated_text,
-            reranked_texts,
-            claims,
-            query=query  # Pass query to help with claim formatting
+        abstained = (
+            abstain_if_unanswered
+            and FLANT5Generator.is_unanswerable_response(generated_text)
         )
+        if abstained:
+            generated_text = "I cannot answer from the available evidence."
+            claims = []
+            verification_results = {
+                "verification_results": [],
+                "num_entailed": 0,
+                "num_total": 0,
+                "entailment_rate": 0.0,
+                "avg_entailment_score": 0.0,
+                "verified": False,
+                "abstained": True,
+            }
+        else:
+            claims = self.claim_extractor.extract_claims(generated_text)
+            verification_results = self.verifier.verify_generation(
+                generated_text, reranked_texts, claims, query=query
+            )
         
         # Step 6: Adaptive revision (if enabled and verification failed)
         # NOTE: Revision decisions are based ONLY on verification results (entailment checking),
         # NOT on ground truth. This makes the system deployable in production.
         revision_iterations = 0
         revision_history = []  # Track revision history for transparency
-        abstained = False
         
-        if self.enable_revision and self.revision_strategy:
+        if self.enable_revision and self.revision_strategy and not abstained:
             if not verification_results.get("verified", False):
                 for iteration in range(max_revision_iterations):
                     # Store context before revision for comparison
