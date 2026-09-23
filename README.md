@@ -98,6 +98,9 @@ and at least three distinct seeds.
 The full run checks that each experiment wrote a fresh artifact before counting
 its metrics. Existing fixed-name artifacts cannot establish per-seed provenance,
 so `--skip-runs` is no longer accepted.
+A release run requires a clean, committed worktree. The runner also checks that
+the source revision stays unchanged and that each archived artifact records
+the same commit. Diagnostic runs remain available while code is being edited.
 
 After a complete full run, pass its printed manifest path to
 `scripts/create_results_lock.py --manifest PATH`. The script validates the

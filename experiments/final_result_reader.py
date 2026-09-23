@@ -74,7 +74,8 @@ def select_metrics(experiment_name: str, payload: dict, threshold: float) -> dic
 
 def load_metrics(path: Path, experiment_name: str, threshold: float,
                  expected_seed: int | None = None, expected_split: str | None = None,
-                 expected_iterations: int | None = None) -> dict[str, float]:
+                 expected_iterations: int | None = None,
+                 expected_commit: str | None = None) -> dict[str, float]:
     with path.open(encoding="utf-8") as handle:
         payload = json.load(handle)
     if not isinstance(payload, dict):
@@ -98,6 +99,14 @@ def load_metrics(path: Path, experiment_name: str, threshold: float,
             raise ValueError(f"artifact seed {metadata['seed']} does not match {expected_seed}")
         if expected_split is not None and metadata["split"] != expected_split:
             raise ValueError(f"artifact split {metadata['split']} does not match {expected_split}")
+        if expected_commit is not None:
+            commits = []
+            if isinstance(metadata, dict) and "commit_hash" in metadata:
+                commits.append(metadata["commit_hash"])
+            if "commit_hash" in payload:
+                commits.append(payload["commit_hash"])
+            if not commits or any(commit != expected_commit for commit in commits):
+                raise ValueError(f"artifact commit does not match {expected_commit}")
         if experiment_name == "exp6_iterative_training" and expected_iterations is not None:
             actual_iterations = payload.get("total_iterations")
             if (isinstance(actual_iterations, bool) or not isinstance(actual_iterations, int)

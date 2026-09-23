@@ -267,3 +267,54 @@ def test_reader_rejects_a_short_training_artifact(tmp_path):
     with pytest.raises(ValueError, match="do not match configured 3"):
         load_metrics(artifact, "exp6_iterative_training", 0.75, expected_seed=42,
                      expected_split="validation", expected_iterations=3)
+
+
+def test_full_run_rejects_dirty_source_before_creating_a_run(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(runner, "project_root", tmp_path)
+    config = tmp_path / "config/config.yaml"
+    config.parent.mkdir(parents=True)
+    config.write_text(
+        "verification:\n  threshold: 0.75\n"
+        "datasets:\n  active: squad_v2\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(runner, "check_training_readiness", lambda *_args: None)
+    monkeypatch.setattr(runner, "repository_commit", lambda _root: "12345678")
+    monkeypatch.setattr(runner, "repository_is_clean", lambda _root: False)
+    monkeypatch.setattr(sys, "argv", ["run_final_experiments.py"])
+
+    with pytest.raises(SystemExit) as exc:
+        runner.main()
+
+    assert exc.value.code == 2
+    assert "clean Git worktree" in capsys.readouterr().err
+    assert not (tmp_path / "results/metrics/final_runs").exists()
+
+
+def test_full_run_marks_midrun_source_changes_incomplete(tmp_path, monkeypatch):
+    monkeypatch.setattr(runner, "project_root", tmp_path)
+    config = tmp_path / "config/config.yaml"
+    config.parent.mkdir(parents=True)
+    config.write_text(
+        "verification:\n  threshold: 0.75\n"
+        "datasets:\n  active: squad_v2\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(runner, "check_training_readiness", lambda *_args: None)
+    monkeypatch.setattr(runner, "repository_commit", lambda _root: "12345678")
+    clean_states = iter([True, False])
+    monkeypatch.setattr(runner, "repository_is_clean", lambda _root: next(clean_states))
+
+    def aggregate_results_across_seeds(**kwargs):
+        kwargs["archive_dir"].mkdir(parents=True)
+        return {}, [], {}
+
+    monkeypatch.setattr(runner, "aggregate_results_across_seeds", aggregate_results_across_seeds)
+    monkeypatch.setattr(sys, "argv", ["run_final_experiments.py"])
+
+    assert runner.main() == 1
+    manifest_path = next((tmp_path / "results/metrics/final_runs").glob("*/manifest.json"))
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["status"] == "incomplete"
+    assert "repository worktree changed during the run" in manifest["failures"]
+    assert not (tmp_path / "results/metrics/final_summary.csv").exists()

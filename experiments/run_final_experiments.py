@@ -20,7 +20,7 @@ sys.path.insert(0, str(project_root))
 
 import yaml
 from experiments.final_result_reader import RESULT_FILES, load_metrics
-from src.utils import get_commit_hash, get_timestamp
+from src.utils import get_timestamp
 from src.utils.device import qlora_supported, resolve_device
 
 
@@ -61,6 +61,30 @@ def check_training_readiness(config: dict, experiments: list[str],
             f"(resolved device: {device}). Use a supported CUDA host or omit "
             "Experiment 6 from diagnostic runs."
         )
+
+
+def repository_is_clean(root: Path) -> bool:
+    """Check tracked and untracked source files, excluding ignored run outputs."""
+    try:
+        result = subprocess.run(
+            ["git", "status", "--porcelain", "--untracked-files=normal"],
+            cwd=root, capture_output=True, text=True, check=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise RuntimeError("cannot verify repository worktree state") from exc
+    return not result.stdout.strip()
+
+
+def repository_commit(root: Path) -> str:
+    """Read the revision of the repository being evaluated."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=root, capture_output=True, text=True, check=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return "unknown"
+    return result.stdout.strip()[:8] or "unknown"
 
 
 def extract_numeric_metrics(payload: Dict[str, Any]) -> Dict[str, float]:
@@ -132,7 +156,8 @@ def aggregate_results_across_seeds(experiments: List[str], seeds: List[int],
                                    split: str = "validation", limit: int = None,
                                    dry_run: bool = False, threshold: float = 0.75,
                                    archive_dir: Path | None = None,
-                                   expected_iterations: int | None = None) -> tuple[dict, list[str], dict]:
+                                   expected_iterations: int | None = None,
+                                   expected_commit: str | None = None) -> tuple[dict, list[str], dict]:
     """
     Run experiments with multiple seeds and aggregate results.
     
@@ -182,6 +207,7 @@ def aggregate_results_across_seeds(experiments: List[str], seeds: List[int],
                     artifact_path, exp_name, threshold,
                     expected_seed=seed, expected_split=split,
                     expected_iterations=expected_iterations,
+                    expected_commit=expected_commit,
                 )
                 if seed_results and metrics.keys() != seed_results[0].keys():
                     raise ValueError("metric names differ from earlier seeds")
@@ -367,6 +393,15 @@ def main():
         check_training_readiness(config, args.experiments, args.split, diagnostic)
     except (ValueError, RuntimeError) as exc:
         parser.error(str(exc))
+    run_commit = repository_commit(project_root)
+    if not diagnostic:
+        if run_commit in {"", "unknown"}:
+            parser.error("a full run requires a Git commit")
+        try:
+            if not repository_is_clean(project_root):
+                parser.error("a full run requires a clean Git worktree")
+        except RuntimeError as exc:
+            parser.error(str(exc))
     run_id = datetime.now().strftime("%Y%m%dT%H%M%S") + "-" + uuid4().hex[:8]
     archive_dir = project_root / "results/metrics/final_runs" / run_id
     
@@ -392,9 +427,18 @@ def main():
         expected_iterations=(
             training_iterations(config) if "exp6_iterative_training" in args.experiments else None
         ),
+        expected_commit=run_commit if not diagnostic else None,
     )
     if hashlib.sha256(config_path.read_bytes()).hexdigest() != config_hash:
         failures.append("configuration changed during the run")
+    if not diagnostic:
+        if repository_commit(project_root) != run_commit:
+            failures.append("repository commit changed during the run")
+        try:
+            if not repository_is_clean(project_root):
+                failures.append("repository worktree changed during the run")
+        except RuntimeError as exc:
+            failures.append(str(exc))
     if args.copy_plots and not failures and not diagnostic:
         missing_plots = copy_key_plots_to_final()
         failures.extend(f"missing plot: {path}" for path in missing_plots)
@@ -416,7 +460,7 @@ def main():
         "config_sha256": config_hash,
         "dataset": config["datasets"]["active"],
         "timestamp": get_timestamp(),
-        "commit_hash": get_commit_hash(),
+        "commit_hash": run_commit,
     }
     manifest_path = archive_dir / "manifest.json"
     with manifest_path.open("x", encoding="utf-8") as handle:

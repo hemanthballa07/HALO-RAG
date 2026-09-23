@@ -29,12 +29,17 @@ def artifact_payload(experiment, seed, value):
             "iteration_results": {"3": {"metrics": {"f1_score": value}}},
             "total_iterations": 3,
         },
-        "exp7_ablation_study": {"aggregated": {"full": metric}},
-        "exp8_stress_test": {"baseline": {"f1_score": value}},
+        "exp7_ablation_study": {"aggregated": {"full": metric},
+                                "commit_hash": "12345678"},
+        "exp8_stress_test": {"baseline": {"f1_score": value},
+                             "commit_hash": "12345678"},
     }
-    return {**payloads[experiment], "metadata": {
+    metadata = {
         "seed": seed, "split": "validation", "sample_limit": None, "total_queries": 10,
-    }}
+    }
+    if experiment not in {"exp7_ablation_study", "exp8_stress_test"}:
+        metadata["commit_hash"] = "12345678"
+    return {**payloads[experiment], "metadata": metadata}
 
 
 def complete_run(root):
@@ -194,4 +199,21 @@ def test_release_rejects_wrong_training_iteration_artifact(tmp_path):
     )
 
     with pytest.raises(ValueError, match="do not match configured 3"):
+        create_results_lock(manifest_path, tmp_path / "RESULTS_LOCK.md", root=tmp_path)
+
+
+def test_release_rejects_an_artifact_from_another_commit(tmp_path):
+    manifest_path = complete_run(tmp_path)
+    artifact = manifest_path.parent / "exp7_ablation_study_seed42.json"
+    payload = json.loads(artifact.read_text(encoding="utf-8"))
+    payload["commit_hash"] = "87654321"
+    artifact.write_text(json.dumps(payload), encoding="utf-8")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["artifacts"]["exp7_ablation_study"]["42"]["sha256"] = hash_file(artifact)
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    (tmp_path / "results/metrics/final_aggregated_results.json").write_text(
+        json.dumps(manifest), encoding="utf-8"
+    )
+
+    with pytest.raises(ValueError, match="artifact commit does not match"):
         create_results_lock(manifest_path, tmp_path / "RESULTS_LOCK.md", root=tmp_path)
