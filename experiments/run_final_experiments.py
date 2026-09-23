@@ -21,7 +21,19 @@ sys.path.insert(0, str(project_root))
 import yaml
 from experiments.final_result_reader import RESULT_FILES, load_metrics
 from src.utils import get_timestamp
+from src.utils.cli import resolve_sample_limit
 from src.utils.device import qlora_supported, resolve_device
+
+DRY_RUN_LIMITS = {
+    "exp1_baseline": 30,
+    "exp2_retrieval_comparison": 30,
+    "exp3_threshold_tuning": 30,
+    "exp4_revision_strategies": 30,
+    "exp5_self_consistency": 20,
+    "exp6_iterative_training": 100,
+    "exp7_ablation_study": 50,
+    "exp8_stress_test": 50,
+}
 
 PLOT_FILES = {
     "exp2_retrieval_comparison": ("exp2_retrieval_bars.png", "retrieval_bars.png"),
@@ -167,6 +179,8 @@ def aggregate_results_across_seeds(experiments: List[str], seeds: List[int],
                                    archive_dir: Path | None = None,
                                    expected_iterations: int | None = None,
                                    expected_commit: str | None = None,
+                                   expected_dataset: str | None = None,
+                                   configured_limit: int | None = None,
                                    require_plots: bool = False) -> tuple[dict, list[str], dict]:
     """
     Run experiments with multiple seeds and aggregate results.
@@ -224,6 +238,11 @@ def aggregate_results_across_seeds(experiments: List[str], seeds: List[int],
                     expected_seed=seed, expected_split=split,
                     expected_iterations=expected_iterations,
                     expected_commit=expected_commit,
+                    expected_dataset=expected_dataset,
+                    expected_sample_limit=resolve_sample_limit(
+                        limit, dry_run, DRY_RUN_LIMITS[exp_name], configured_limit
+                    ),
+                    check_sample_limit=True,
                 )
                 if seed_results and metrics.keys() != seed_results[0].keys():
                     raise ValueError("metric names differ from earlier seeds")
@@ -382,6 +401,8 @@ def main():
     unknown = set(args.experiments) - set(RESULT_FILES)
     if unknown:
         parser.error(f"unknown experiments: {', '.join(sorted(unknown))}")
+    if args.limit is not None and args.limit <= 0:
+        parser.error("--limit must be a positive integer")
     config_path = Path(args.config)
     if not config_path.is_absolute():
         config_path = project_root / config_path
@@ -437,6 +458,8 @@ def main():
             training_iterations(config) if "exp6_iterative_training" in args.experiments else None
         ),
         expected_commit=run_commit if not diagnostic else None,
+        expected_dataset=config["datasets"]["active"],
+        configured_limit=config.get("datasets", {}).get("sample_limit"),
         require_plots=args.copy_plots and not diagnostic,
     )
     if hashlib.sha256(config_path.read_bytes()).hexdigest() != config_hash:

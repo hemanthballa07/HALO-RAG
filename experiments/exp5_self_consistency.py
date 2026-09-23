@@ -496,7 +496,7 @@ def main():
     
     # Load dataset
     print("Loading dataset...")
-    examples = load_dataset_from_config(config, split=args.split)
+    examples = load_dataset_from_config(config, split=args.split, limit=sample_limit)
     
     # Apply sample limit if specified
     if sample_limit:

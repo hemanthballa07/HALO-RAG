@@ -75,14 +75,18 @@ def select_metrics(experiment_name: str, payload: dict, threshold: float) -> dic
 def load_metrics(path: Path, experiment_name: str, threshold: float,
                  expected_seed: int | None = None, expected_split: str | None = None,
                  expected_iterations: int | None = None,
-                 expected_commit: str | None = None) -> dict[str, float]:
+                 expected_commit: str | None = None,
+                 expected_dataset: str | None = None,
+                 expected_sample_limit: int | None = None,
+                 check_sample_limit: bool = False) -> dict[str, float]:
     with path.open(encoding="utf-8") as handle:
         payload = json.load(handle)
     if not isinstance(payload, dict):
         raise ValueError(f"{path} must contain a JSON object")
     try:
         metadata = payload.get("metadata")
-        if expected_seed is not None or expected_split is not None:
+        if (expected_seed is not None or expected_split is not None
+                or expected_dataset is not None or check_sample_limit):
             if not isinstance(metadata, dict):
                 raise ValueError("artifact is missing run metadata")
             for field in ("seed", "split", "sample_limit", "total_queries"):
@@ -92,6 +96,13 @@ def load_metrics(path: Path, experiment_name: str, threshold: float,
                     or not isinstance(metadata["total_queries"], int)
                     or metadata["total_queries"] <= 0):
                 raise ValueError("artifact metadata has invalid total_queries")
+            sample_limit = metadata["sample_limit"]
+            if (sample_limit is not None
+                    and (isinstance(sample_limit, bool) or not isinstance(sample_limit, int)
+                         or sample_limit <= 0)):
+                raise ValueError("artifact metadata has invalid sample_limit")
+            if sample_limit is not None and metadata["total_queries"] > sample_limit:
+                raise ValueError("artifact query count exceeds sample_limit")
             if ("total_queries" in payload
                     and payload["total_queries"] != metadata["total_queries"]):
                 raise ValueError("artifact query count disagrees with metadata")
@@ -99,6 +110,13 @@ def load_metrics(path: Path, experiment_name: str, threshold: float,
             raise ValueError(f"artifact seed {metadata['seed']} does not match {expected_seed}")
         if expected_split is not None and metadata["split"] != expected_split:
             raise ValueError(f"artifact split {metadata['split']} does not match {expected_split}")
+        if expected_dataset is not None and metadata.get("dataset") != expected_dataset:
+            raise ValueError(f"artifact dataset {metadata.get('dataset')} does not match {expected_dataset}")
+        if check_sample_limit and metadata["sample_limit"] != expected_sample_limit:
+            raise ValueError(
+                f"artifact sample_limit {metadata['sample_limit']} does not match "
+                f"{expected_sample_limit}"
+            )
         if expected_commit is not None:
             commits = []
             if isinstance(metadata, dict) and "commit_hash" in metadata:

@@ -37,6 +37,8 @@ report `n=3` per metric. Use `--copy-plots` to publish the six key figures only 
 each seed has produced fresh metrics and its associated plot. Existing figures from
 earlier runs do not satisfy this check. `--skip-runs` is no longer supported because
 single experiment files cannot establish per-seed provenance.
+Archived metrics must also record the configured dataset and the effective sample
+limit for that run. A mismatch leaves the run incomplete.
 
 The root `final_run_results.zip` is a pre-correction historical archive. It remains in the
 repository for provenance, but its metrics should not be cited as current HALO-RAG results.

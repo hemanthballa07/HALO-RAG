@@ -533,7 +533,9 @@ def main():
     config = load_config(args.config)
     
     # Set limit for dry-run
-    args.limit = resolve_sample_limit(args.limit, args.dry_run, 50)
+    args.limit = resolve_sample_limit(
+        args.limit, args.dry_run, 50, config.get("datasets", {}).get("sample_limit")
+    )
     if args.dry_run:
         print(f"Dry-run mode: limiting to {args.limit} examples")
     
@@ -559,7 +561,7 @@ def main():
     
     # Load dataset
     print("Loading dataset...")
-    examples = load_dataset_from_config(config, split=args.split)
+    examples = load_dataset_from_config(config, split=args.split, limit=args.limit)
     
     # Prepare data for experiments
     queries, ground_truths, relevant_docs, corpus = prepare_for_experiments(examples)

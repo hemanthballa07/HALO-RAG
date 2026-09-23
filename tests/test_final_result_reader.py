@@ -86,6 +86,47 @@ def test_reader_requires_provenance_for_archived_runs(tmp_path):
                      expected_split="validation")
 
 
+def test_reader_checks_dataset_and_sample_limit(tmp_path):
+    artifact = tmp_path / "result.json"
+    payload = {
+        "metadata": {"dataset": "squad_v2", "seed": 42, "split": "validation",
+                     "sample_limit": 2, "total_queries": 2},
+        "aggregated_metrics": {"f1_score": {"mean": 0.5}},
+    }
+    artifact.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="artifact dataset squad_v2 does not match hotpotqa"):
+        load_metrics(artifact, "exp1_baseline", 0.75, expected_dataset="hotpotqa")
+    with pytest.raises(ValueError, match="artifact sample_limit 2 does not match 3"):
+        load_metrics(artifact, "exp1_baseline", 0.75, expected_sample_limit=3,
+                     check_sample_limit=True)
+    assert load_metrics(artifact, "exp1_baseline", 0.75, expected_dataset="squad_v2",
+                        expected_sample_limit=2, check_sample_limit=True)["f1_score"] == 0.5
+
+    payload["metadata"]["total_queries"] = 3
+    artifact.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="query count exceeds sample_limit"):
+        load_metrics(artifact, "exp1_baseline", 0.75, expected_seed=42)
+
+    payload["metadata"]["sample_limit"] = True
+    artifact.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="invalid sample_limit"):
+        load_metrics(artifact, "exp1_baseline", 0.75, expected_seed=42)
+
+
+def test_reader_checks_unlimited_run_metadata(tmp_path):
+    artifact = tmp_path / "result.json"
+    artifact.write_text(json.dumps({
+        "metadata": {"dataset": "squad_v2", "seed": 42, "split": "validation",
+                     "sample_limit": 2, "total_queries": 2},
+        "aggregated_metrics": {"f1_score": {"mean": 0.5}},
+    }), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="artifact sample_limit 2 does not match None"):
+        load_metrics(artifact, "exp1_baseline", 0.75, expected_sample_limit=None,
+                     check_sample_limit=True)
+
+
 def test_runner_archives_each_seed_before_the_next_run(tmp_path, monkeypatch):
     monkeypatch.setattr(runner, "project_root", tmp_path)
     source = tmp_path / "results/metrics" / RESULT_FILES["exp1_baseline"]
@@ -124,6 +165,30 @@ def test_runner_rejects_a_success_without_new_artifact(tmp_path, monkeypatch):
 
     assert results == {}
     assert "no fresh metrics artifact" in failures[0]
+    assert artifacts["exp1_baseline"] == {}
+
+
+def test_runner_rejects_an_artifact_with_the_wrong_configured_limit(tmp_path, monkeypatch):
+    monkeypatch.setattr(runner, "project_root", tmp_path)
+    source = tmp_path / "results/metrics" / RESULT_FILES["exp1_baseline"]
+    source.parent.mkdir(parents=True)
+
+    def run_experiment(*_args):
+        source.write_text(json.dumps({
+            "metadata": {"dataset": "squad_v2", "seed": 42, "split": "validation",
+                         "sample_limit": 1, "total_queries": 1},
+            "aggregated_metrics": {"f1_score": {"mean": 0.5}},
+        }), encoding="utf-8")
+        return {"status": "success"}
+
+    monkeypatch.setattr(runner, "run_experiment", run_experiment)
+    results, failures, artifacts = runner.aggregate_results_across_seeds(
+        ["exp1_baseline"], [42], archive_dir=tmp_path / "archive",
+        expected_dataset="squad_v2", configured_limit=2,
+    )
+
+    assert results == {}
+    assert "sample_limit 1 does not match 2" in failures[0]
     assert artifacts["exp1_baseline"] == {}
 
 
@@ -226,11 +291,11 @@ def test_main_does_not_publish_incomplete_or_diagnostic_results(
     config.write_text("verification:\n  threshold: 0.75\ndatasets:\n  active: squad_v2\n",
                       encoding="utf-8")
 
-    def run_experiment(_name, _seed, *_args):
+    def run_experiment(_name, _seed, _config_path, _split, _limit, dry_run):
         if write_result:
             source.write_text(json.dumps({
-                "metadata": {"seed": 42, "split": "validation", "sample_limit": None,
-                             "total_queries": 10},
+                "metadata": {"dataset": "squad_v2", "seed": 42, "split": "validation",
+                             "sample_limit": 30 if dry_run else None, "total_queries": 10},
                 "aggregated_metrics": {"f1_score": {"mean": 0.5}},
             }), encoding="utf-8")
         return {"status": "success"}
@@ -269,8 +334,8 @@ def test_configuration_change_marks_run_incomplete(tmp_path, monkeypatch):
 
     def run_experiment(*_args):
         source.write_text(json.dumps({
-            "metadata": {"seed": 42, "split": "validation", "sample_limit": None,
-                         "total_queries": 10},
+            "metadata": {"dataset": "squad_v2", "seed": 42, "split": "validation",
+                         "sample_limit": None, "total_queries": 10},
             "aggregated_metrics": {"f1_score": {"mean": 0.5}},
         }), encoding="utf-8")
         config.write_text(config.read_text(encoding="utf-8") + "# changed\n",

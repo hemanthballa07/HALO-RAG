@@ -176,7 +176,7 @@ def main():
         args.limit, args.dry_run, 30, config.get("datasets", {}).get("sample_limit")
     )
 
-    examples = load_dataset_from_config(config, split=args.split)
+    examples = load_dataset_from_config(config, split=args.split, limit=sample_limit)
     if sample_limit:
         examples = examples[:sample_limit]
     if not examples:

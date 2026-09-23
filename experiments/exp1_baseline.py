@@ -321,7 +321,7 @@ def main():
         print("   Exp6 uses 'train' split for fine-tuning, so evaluation should use 'validation' to avoid data leakage.")
     else:
         print("✓ Using 'validation' split (correct for evaluation, avoids data leakage with Exp6 training data)")
-    examples = load_dataset_from_config(config, split=args.split)
+    examples = load_dataset_from_config(config, split=args.split, limit=sample_limit)
     
     # Apply sample limit if specified
     if sample_limit:
