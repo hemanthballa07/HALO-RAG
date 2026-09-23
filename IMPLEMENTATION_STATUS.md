@@ -83,6 +83,35 @@ non-abstaining answer was wrong and was not verified. These figures are from
 ignored by Git. More seeds, other datasets, and the target CUDA environment
 must be checked before choosing a default.
 
+## Larger paired CPU check
+
+Two further runs used seeds 2026 and 2027, each with 40 SQuAD v2 validation
+questions and a separate 1,000-passage corpus. The configurations and model
+versions matched, and the selected question IDs did not overlap across runs.
+The pooled figures below cover 80 questions, split evenly by answerability.
+
+| Variant | Overall exact match | Answerable | Unanswerable | Label-based false accept | CPU latency p50 / p95 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Baseline | 35% | 70% | 0% | 60% | 1.63 / 3.81 s |
+| Revision | 45% | 60% | 30% | 70% | 1.57 / 4.75 s |
+| Focused, no revision | 70% | 80% | 60% | 25% | 0.97 / 1.74 s |
+
+Focused improved exact match on 31 paired questions and harmed it on 3,
+relative to baseline. Latency covers per-question retrieval through output on
+this CPU host; it excludes model loading and index construction. The 95% result
+on seed 789 did not persist in these larger samples. Do not choose a default
+from these results alone.
+
+The false-accept column counts verified non-abstaining answers on questions
+labeled unanswerable by SQuAD v2. Several reviewed passages contain plausible
+answers despite that label, so this number is not a direct hallucination rate.
+The 24 nonexact focused cases were exported to
+`results/human_eval/focused_seed2026_2027_review.csv` for separate relevance
+and evidence-support judgments. The individual runs and combined summary are
+under `results/metrics/benchmark_40q_1000docs_*`; these local artifacts are
+ignored by Git. Human review, other datasets, and a target-hardware run remain
+open before release.
+
 ## Validation required for a release
 
 Run the full experiment matrix on the target CUDA environment, inspect the generated

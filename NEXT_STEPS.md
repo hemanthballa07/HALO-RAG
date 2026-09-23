@@ -2,16 +2,16 @@
 
 ## Before the full experiment run
 
-1. Improve verification beyond lexical co-occurrence. The direct-match regression
-   is covered, but a replay still verified 18 of 30 answers to unanswerable
-   questions. Measure false acceptance and lost correct answers on new samples
-   before setting a release threshold.
-2. Repeat the end-to-end comparison of the optional top-passage no-answer
-   setting on larger untouched samples and other datasets. Seed 789 is a useful
-   20-question check, not enough to choose a default. Report answerable and
-   unanswerable results separately, with latency and abstention.
-3. After selecting a setting, run the release checks below on the target CUDA
-   environment. Do not treat the current CPU sample as a release result.
+1. Review the 24 nonexact focused answers in
+   `results/human_eval/focused_seed2026_2027_review.csv`. Judge whether each
+   answer addresses the question and is supported by its retrieved passage.
+   Keep those judgments separate from the SQuAD v2 answerability label.
+2. Use confirmed unsupported answers to improve verification beyond lexical
+   co-occurrence. The two larger runs still show 25% label-based false
+   acceptance for focused mode. Add regression cases from adjudicated errors,
+   then evaluate on new seeds and another dataset without tuning to test cases.
+3. Repeat the experiment matrix on the target CUDA host after choosing a
+   setting. The CPU runs are useful checks, not release results.
 
 ## 1. Validate the environment
 
