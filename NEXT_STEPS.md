@@ -5,7 +5,10 @@
 1. Review the 24 nonexact focused answers in
    `results/human_eval/focused_seed2026_2027_review.csv`. Judge whether each
    answer addresses the question and is supported by its retrieved passage.
-   Keep those judgments separate from the SQuAD v2 answerability label.
+   Keep those judgments separate from the SQuAD v2 answerability label. Once
+   every row is labeled, run `experiments/score_benchmark_review.py` as shown in
+   `results/human_eval/README.md`. Do not treat its targeted counts as rates
+   across the full benchmark.
 2. Use confirmed unsupported answers to improve verification beyond lexical
    co-occurrence. The two larger runs still show 25% label-based false
    acceptance for focused mode. Add regression cases from adjudicated errors,

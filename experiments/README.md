@@ -81,6 +81,12 @@ The CSV contains both the source passage and the passage used by the pipeline.
 The human judgment columns are intentionally blank. The exporter refuses to
 overwrite an existing review file.
 
+Once an independent reviewer fills those columns, run
+`score_benchmark_review.py` to validate the labels and count supported,
+unsupported, irrelevant, and unclear answers. See
+`results/human_eval/README.md` for the labels and command. This targeted
+nonexact subset cannot estimate factuality across the full benchmark.
+
 ## Experiments
 
 ### Experiment 1: Baseline Comparison

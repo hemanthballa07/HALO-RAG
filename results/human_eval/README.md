@@ -16,6 +16,22 @@ If the system abstained, mark the first two fields `NOT APPLICABLE` and note
 whether the source passage appears to contain an answer. Do not overwrite a
 partially annotated review CSV with a new export.
 
+After an independent reviewer completes every row, validate and summarize the
+sheet with:
+
+```bash
+python experiments/score_benchmark_review.py \
+  --csv results/human_eval/focused_seed2026_2027_review.csv \
+  --output results/human_eval/focused_seed2026_2027_review_report.json
+```
+
+The command exits without writing a report if any judgment is blank or invalid.
+It also refuses to overwrite an existing report. Omit `--output` to print the
+summary. The report counts abstentions separately and breaks answered cases
+down by source label and verifier status. Its counts cover only the exported
+nonexact cases, not all benchmark answers. Do not present them as an overall
+factuality rate.
+
 ## Overview
 
 This directory contains samples for human evaluation of the HALO-RAG system. Annotators are asked to evaluate whether the generated answers are supported by the provided context.
