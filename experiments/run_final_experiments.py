@@ -1,8 +1,4 @@
-"""
-Final Experiment Runner
-Re-runs Exp1-8 and Human Eval with seeds {42, 123, 456} and optimal τ from Exp8.
-Aggregates results and creates final_summary.csv with mean ± sd.
-"""
+"""Run Exp1-8 for each seed and aggregate fresh, archived result artifacts."""
 
 import sys
 import os
@@ -12,21 +8,27 @@ import json
 import csv
 import subprocess
 from datetime import datetime
+import hashlib
 import numpy as np
 from typing import Dict, List, Any
 import shutil
+from uuid import uuid4
 
 # Add project root to path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 import yaml
+from experiments.final_result_reader import RESULT_FILES, load_metrics
 from src.utils import get_commit_hash, get_timestamp
 
 
 def load_config(config_path: str = "config/config.yaml"):
     """Load configuration."""
-    with open(config_path, 'r') as f:
+    path = Path(config_path)
+    if not path.is_absolute():
+        path = project_root / path
+    with path.open(encoding="utf-8") as f:
         config = yaml.safe_load(f)
     return config
 
@@ -34,16 +36,17 @@ def load_config(config_path: str = "config/config.yaml"):
 def extract_numeric_metrics(payload: Dict[str, Any]) -> Dict[str, float]:
     """Extract scalar metric means from an experiment result document."""
     metric_payload = payload.get("aggregated_metrics", payload)
-    if not isinstance(metric_payload, dict):
-        return {}
+    from experiments.final_result_reader import extract_numeric_metrics as extract
 
-    metrics = {}
-    for metric_name, value in metric_payload.items():
-        if isinstance(value, dict):
-            value = value.get("mean")
-        if isinstance(value, (int, float)) and not isinstance(value, bool):
-            metrics[metric_name] = float(value)
-    return metrics
+    return extract(metric_payload)
+
+
+def artifact_signature(path: Path) -> tuple[int, int, str] | None:
+    """Detect whether a run wrote its expected result, including identical content rewrites."""
+    if not path.is_file():
+        return None
+    stat = path.stat()
+    return stat.st_mtime_ns, stat.st_size, hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def run_experiment(experiment_name: str, seed: int, config_path: str = "config/config.yaml", 
@@ -88,99 +91,11 @@ def run_experiment(experiment_name: str, seed: int, config_path: str = "config/c
         return {"status": "error", "output": e.stdout, "error": e.stderr}
 
 
-def load_experiment_results(experiment_name: str, seed: int) -> Dict[str, Any]:
-    """
-    Load results from an experiment run.
-    
-    Args:
-        experiment_name: Name of experiment
-        seed: Random seed
-    
-    Returns:
-        Dictionary with metrics
-    """
-    # Map experiment names to result files
-    result_files = {
-        "exp1_baseline": "results/metrics/exp1_baseline.json",
-        "exp2_retrieval_comparison": "results/metrics/exp2_retrieval.csv",
-        "exp3_threshold_tuning": "results/metrics/exp3_threshold_sweep.csv",
-        "exp4_revision_strategies": "results/metrics/exp4_revision_strategies.json",
-        "exp5_self_consistency": "results/metrics/exp5_self_consistency.json",
-        "exp6_iterative_training": "results/metrics/exp6_iterative_training.csv",
-        "exp7_ablation_study": "results/metrics/exp7_ablation.csv",
-        "exp8_stress_test": "results/metrics/exp8_stress.json",
-    }
-    
-    result_file = result_files.get(experiment_name)
-    if not result_file or not os.path.exists(result_file):
-        return {}
-    
-    try:
-        if result_file.endswith(".json"):
-            with open(result_file, 'r') as f:
-                payload = json.load(f)
-                if experiment_name == "exp4_revision_strategies":
-                    payload = payload.get("revision_metrics", {})
-                return extract_numeric_metrics(payload)
-        elif result_file.endswith(".csv"):
-            # Load CSV and convert to dict
-            metrics = {}
-            with open(result_file, 'r') as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    # For experiments with multiple rows, use the first/main row
-                    if experiment_name == "exp2_retrieval_comparison":
-                        # Use Hybrid+Rerank results
-                        if row.get("config") == "hybrid_rerank" or "hybrid" in row.get("config", "").lower():
-                            for key, value in row.items():
-                                if key != "config" and value:
-                                    try:
-                                        metrics[key] = float(value)
-                                    except ValueError:
-                                        pass
-                            break
-                    elif experiment_name == "exp3_threshold_tuning":
-                        # Use optimal threshold (0.75) results
-                        if abs(float(row.get("threshold", 0)) - 0.75) < 0.01:
-                            for key, value in row.items():
-                                if key != "threshold" and value:
-                                    try:
-                                        metrics[key] = float(value)
-                                    except ValueError:
-                                        pass
-                            break
-                    elif experiment_name in ["exp6_iterative_training", "exp7_ablation_study"]:
-                        # Use first row (full system) or specified variant
-                        if experiment_name == "exp7_ablation_study" and row.get("variant") == "full":
-                            for key, value in row.items():
-                                if key != "variant" and value:
-                                    try:
-                                        metrics[key] = float(value)
-                                    except ValueError:
-                                        pass
-                            break
-                        elif experiment_name == "exp6_iterative_training":
-                            # Use Iter3 results
-                            if row.get("iteration") == "3" or "iter3" in row.get("iteration", "").lower():
-                                for key, value in row.items():
-                                    if key != "iteration" and value:
-                                        try:
-                                            metrics[key] = float(value)
-                                        except ValueError:
-                                            pass
-                                break
-            return metrics
-    except Exception as e:
-        print(f"Error loading results from {result_file}: {e}")
-        return {}
-    
-    return {}
-
-
-def aggregate_results_across_seeds(experiments: List[str], seeds: List[int], 
+def aggregate_results_across_seeds(experiments: List[str], seeds: List[int],
                                    config_path: str = "config/config.yaml",
                                    split: str = "validation", limit: int = None,
-                                   dry_run: bool = False) -> tuple[Dict[str, Dict[str, Any]], List[str]]:
+                                   dry_run: bool = False, threshold: float = 0.75,
+                                   archive_dir: Path | None = None) -> tuple[dict, list[str], dict]:
     """
     Run experiments with multiple seeds and aggregate results.
     
@@ -193,32 +108,59 @@ def aggregate_results_across_seeds(experiments: List[str], seeds: List[int],
         dry_run: Dry run mode
     
     Returns:
-        Aggregated results and a list of failed or incomplete runs
+        Aggregated results, failures, and paths to per-seed source artifacts
     """
+    if archive_dir is None:
+        run_id = datetime.now().strftime("%Y%m%dT%H%M%S") + "-" + uuid4().hex[:8]
+        archive_dir = project_root / "results/metrics/final_runs" / run_id
+    archive_dir.mkdir(parents=True, exist_ok=False)
     all_results = {}
     failures = []
+    artifacts = {}
     
     for exp_name in experiments:
         print(f"\n{'='*60}")
         print(f"Running {exp_name} with seeds {seeds}")
         print(f"{'='*60}")
         
-        exp_results = {}
         seed_results = []
+        artifacts[exp_name] = {}
         
         for seed in seeds:
-            # Run experiment
+            artifact_path = project_root / "results/metrics" / RESULT_FILES[exp_name]
+            before = artifact_signature(artifact_path)
             run_result = run_experiment(exp_name, seed, config_path, split, limit, dry_run)
-            
-            if run_result["status"] == "success":
-                # Load results
-                metrics = load_experiment_results(exp_name, seed)
-                if metrics:
-                    seed_results.append(metrics)
-                else:
-                    failures.append(f"{exp_name} (seed {seed}): no metrics artifact")
-            else:
+            if run_result["status"] != "success":
                 failures.append(f"{exp_name} (seed {seed}): experiment failed")
+                continue
+            after = artifact_signature(artifact_path)
+            if after is None or after == before:
+                failures.append(f"{exp_name} (seed {seed}): no fresh metrics artifact")
+                continue
+            try:
+                metrics = load_metrics(
+                    artifact_path, exp_name, threshold,
+                    expected_seed=seed, expected_split=split,
+                )
+                if seed_results and metrics.keys() != seed_results[0].keys():
+                    raise ValueError("metric names differ from earlier seeds")
+                archived_path = archive_dir / f"{exp_name}_seed{seed}.json"
+                with artifact_path.open("rb") as source, archived_path.open("xb") as target:
+                    shutil.copyfileobj(source, target)
+                archived_hash = hashlib.sha256(archived_path.read_bytes()).hexdigest()
+                if archived_hash != after[2]:
+                    raise ValueError("archived artifact differs from source")
+                if archived_hash in (item["sha256"] for item in artifacts[exp_name].values()):
+                    raise ValueError("identical artifact was produced for another seed")
+            except (OSError, ValueError) as exc:
+                failures.append(f"{exp_name} (seed {seed}): {exc}")
+                continue
+            seed_results.append(metrics)
+            artifacts[exp_name][str(seed)] = {
+                "path": str(archived_path.relative_to(project_root)),
+                "sha256": archived_hash,
+                "metrics": metrics,
+            }
         
         # Aggregate across seeds
         if seed_results:
@@ -238,14 +180,13 @@ def aggregate_results_across_seeds(experiments: List[str], seeds: List[int],
                         "n": len(values)
                     }
             
-            exp_results = aggregated
-            all_results[exp_name] = exp_results
+            all_results[exp_name] = aggregated
             
             print(f"\n{exp_name} aggregated results:")
             for metric, stats in aggregated.items():
                 print(f"  {metric}: {stats['mean']:.4f} ± {stats['std']:.4f} (n={stats['n']})")
     
-    return all_results, failures
+    return all_results, failures, artifacts
 
 
 def create_final_summary_csv(aggregated_results: Dict[str, Dict[str, Any]], 
@@ -299,8 +240,6 @@ def copy_key_plots_to_final(output_dir: str = "results/figures/final") -> List[s
     Returns:
         Source paths for plots that were not produced
     """
-    os.makedirs(output_dir, exist_ok=True)
-    
     # Define key plots to copy
     key_plots = [
         ("exp2_retrieval_bars.png", "retrieval_bars.png"),
@@ -311,24 +250,26 @@ def copy_key_plots_to_final(output_dir: str = "results/figures/final") -> List[s
         ("exp7_ablation_bars.png", "ablation_bars.png"),
     ]
     
-    figures_dir = "results/figures"
+    figures_dir = project_root / "results/figures"
+    target_dir = Path(output_dir)
+    if not target_dir.is_absolute():
+        target_dir = project_root / target_dir
+    missing = [str(figures_dir / source) for source, _ in key_plots
+               if not (figures_dir / source).is_file()]
+    if missing:
+        for path in missing:
+            print(f"✗ Plot not found: {path}")
+        return missing
+    target_dir.mkdir(parents=True, exist_ok=True)
     
     copied = []
-    missing = []
     for src_name, dst_name in key_plots:
-        src_path = os.path.join(figures_dir, src_name)
-        dst_path = os.path.join(output_dir, dst_name)
-        
-        if os.path.exists(src_path):
-            shutil.copy2(src_path, dst_path)
-            copied.append(dst_name)
-            print(f"✓ Copied {src_name} -> {dst_name}")
-        else:
-            print(f"✗ Plot not found: {src_path}")
-            missing.append(src_path)
+        shutil.copy2(figures_dir / src_name, target_dir / dst_name)
+        copied.append(dst_name)
+        print(f"✓ Copied {src_name} -> {dst_name}")
     
-    print(f"\n✓ Copied {len(copied)}/{len(key_plots)} plots to {output_dir}")
-    return missing
+    print(f"\n✓ Copied {len(copied)}/{len(key_plots)} plots to {target_dir}")
+    return []
 
 
 def main():
@@ -351,11 +292,26 @@ def main():
                                "exp8_stress_test"],
                        help="Experiments to run")
     parser.add_argument("--skip-runs", action="store_true",
-                       help="Skip running experiments, only aggregate existing results")
+                       help="Deprecated: existing artifacts cannot establish per-seed provenance")
     parser.add_argument("--copy-plots", action="store_true",
                        help="Copy key plots to final directory")
     
     args = parser.parse_args()
+    if args.skip_runs:
+        parser.error("--skip-runs cannot establish per-seed provenance; rerun the experiments")
+    if len(set(args.seeds)) != len(args.seeds):
+        parser.error("--seeds must be unique")
+    if len(set(args.experiments)) != len(args.experiments):
+        parser.error("--experiments must be unique")
+    unknown = set(args.experiments) - set(RESULT_FILES)
+    if unknown:
+        parser.error(f"unknown experiments: {', '.join(sorted(unknown))}")
+    config = load_config(args.config)
+    threshold = float(config["verification"]["threshold"])
+    if not 0 <= threshold <= 1:
+        parser.error("configured verification threshold must be between 0 and 1")
+    run_id = datetime.now().strftime("%Y%m%dT%H%M%S") + "-" + uuid4().hex[:8]
+    archive_dir = project_root / "results/metrics/final_runs" / run_id
     
     print("="*60)
     print("FINAL EXPERIMENT RUNNER")
@@ -367,63 +323,62 @@ def main():
     print(f"Dry run: {args.dry_run}")
     print("="*60)
     
-    # Run experiments and aggregate results
-    if not args.skip_runs:
-        aggregated_results, failures = aggregate_results_across_seeds(
-            experiments=args.experiments,
-            seeds=args.seeds,
-            config_path=args.config,
-            split=args.split,
-            limit=args.limit,
-            dry_run=args.dry_run
-        )
-    else:
-        print("Skipping experiment runs, aggregating existing results...")
-        aggregated_results = {}
-        failures = []
-        for exp_name in args.experiments:
-            # Experiment scripts keep only their latest result artifact. Without
-            # rerunning, treat that file as one observation instead of pretending
-            # it represents every requested seed.
-            metrics = load_experiment_results(exp_name, args.seeds[0])
-            if not metrics:
-                failures.append(f"{exp_name}: no existing metrics artifact")
-                continue
-
-            aggregated_results[exp_name] = {
-                metric: {"mean": value, "std": 0.0, "values": [value], "n": 1}
-                for metric, value in metrics.items()
-            }
-    
-    # Create final summary CSV
-    if aggregated_results:
-        create_final_summary_csv(aggregated_results)
-    
-    if args.copy_plots:
+    aggregated_results, failures, artifacts = aggregate_results_across_seeds(
+        experiments=args.experiments,
+        seeds=args.seeds,
+        config_path=args.config,
+        split=args.split,
+        limit=args.limit,
+        dry_run=args.dry_run,
+        threshold=threshold,
+        archive_dir=archive_dir,
+    )
+    diagnostic = (
+        args.dry_run or args.limit is not None or len(args.seeds) < 3
+        or set(args.experiments) != set(RESULT_FILES)
+    )
+    if args.copy_plots and not failures and not diagnostic:
         missing_plots = copy_key_plots_to_final()
         failures.extend(f"missing plot: {path}" for path in missing_plots)
-    
-    # Save aggregated results to JSON
-    results_json_path = "results/metrics/final_aggregated_results.json"
-    os.makedirs(os.path.dirname(results_json_path), exist_ok=True)
-    with open(results_json_path, 'w') as f:
-        json.dump({
-            "aggregated_results": aggregated_results,
-            "seeds": args.seeds,
-            "experiments": args.experiments,
-            "timestamp": get_timestamp(),
-            "commit_hash": get_commit_hash()
-        }, f, indent=2)
-    
-    print(f"\n✓ Saved aggregated results to {results_json_path}")
-    print("\n" + "="*60)
-    print("FINAL EXPERIMENT RUNNER COMPLETE")
-    print("="*60)
+    if args.copy_plots and diagnostic:
+        print("Skipping final plot publication for a diagnostic run")
+
+    manifest = {
+        "status": "incomplete" if failures else "diagnostic" if diagnostic else "complete",
+        "aggregated_results": aggregated_results,
+        "artifacts": artifacts,
+        "failures": failures,
+        "seeds": args.seeds,
+        "experiments": args.experiments,
+        "split": args.split,
+        "limit": args.limit,
+        "dry_run": args.dry_run,
+        "selected_threshold": threshold,
+        "timestamp": get_timestamp(),
+        "commit_hash": get_commit_hash(),
+    }
+    manifest_path = archive_dir / "manifest.json"
+    with manifest_path.open("x", encoding="utf-8") as handle:
+        json.dump(manifest, handle, indent=2)
+        handle.write("\n")
+    print(f"Saved per-seed results and manifest to {archive_dir}")
     if failures:
         print("\nIncomplete runs:")
         for failure in failures:
             print(f"  - {failure}")
         return 1
+    if diagnostic:
+        print("Diagnostic run complete. Final summary files were not published.")
+        return 0
+
+    create_final_summary_csv(
+        aggregated_results, output_path=str(project_root / "results/metrics/final_summary.csv")
+    )
+    results_json_path = project_root / "results/metrics/final_aggregated_results.json"
+    with results_json_path.open("w", encoding="utf-8") as handle:
+        json.dump(manifest, handle, indent=2)
+        handle.write("\n")
+    print(f"Saved final aggregated results to {results_json_path}")
     return 0
 
 
