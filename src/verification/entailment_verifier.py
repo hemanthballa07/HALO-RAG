@@ -68,6 +68,67 @@ class EntailmentVerifier:
             f"Model label mapping {self.label_map!r} does not define "
             f"an '{expected_label}' class. Choose an NLI sequence-classification checkpoint."
         )
+
+    @staticmethod
+    def _content_terms(text: str) -> set[str]:
+        stop_words = {
+            "a", "an", "and", "are", "as", "at", "be", "been", "by", "can",
+            "could", "did", "do", "does", "for", "from", "had", "has", "have",
+            "her", "his", "how", "in", "is", "it", "its", "of", "on", "or",
+            "that", "the", "their", "there", "this", "to", "was", "were",
+            "what", "when", "where", "which", "who", "why", "would",
+        }
+        terms = set()
+        for word in re.findall(r"\w+", text.casefold()):
+            if word in stop_words or len(word) < 3:
+                continue
+            if word.endswith("ies") and len(word) > 5:
+                word = word[:-3] + "y"
+            elif word.endswith("ing") and len(word) > 5:
+                word = word[:-3]
+                if len(word) > 2 and word[-1] == word[-2]:
+                    word = word[:-1]
+            elif word.endswith("ed") and len(word) > 4:
+                word = word[:-2]
+            elif word.endswith("es") and len(word) > 4:
+                word = word[:-2]
+            elif word.endswith("s") and len(word) > 4 and not word.endswith("ss"):
+                word = word[:-1]
+            terms.add(word)
+        return terms
+
+    @classmethod
+    def _answer_sentence_matches_query(cls, claim: str, context: str, query: str) -> bool:
+        """Allow a lexical shortcut only when the answer and question share a sentence."""
+        question_terms = cls._content_terms(query)
+        if not question_terms:
+            return False
+        answer_tokens = re.findall(r"\w+", claim.casefold())
+        if not answer_tokens:
+            return False
+        fragments = re.split(r"(?<=[.!?])\s+", context)
+        sentences = []
+        current = ""
+        for fragment in fragments:
+            current = f"{current} {fragment}".strip()
+            if re.search(r"\b(?:Dr|Jr|Mr|Mrs|Ms|Prof|Rep|Sen|Sr|St|U\.S)\.$", current, re.I):
+                continue
+            sentences.append(current)
+            current = ""
+        if current:
+            sentences.append(current)
+
+        for sentence in sentences:
+            sentence_tokens = re.findall(r"\w+", sentence.casefold())
+            width = len(answer_tokens)
+            if not any(
+                sentence_tokens[index:index + width] == answer_tokens
+                for index in range(len(sentence_tokens) - width + 1)
+            ):
+                continue
+            if len(question_terms & cls._content_terms(sentence)) >= min(2, len(question_terms)):
+                return True
+        return False
     
     def verify_claim(
         self,
@@ -86,14 +147,19 @@ class EntailmentVerifier:
         Returns:
             Dictionary with 'entailment', 'neutral', 'contradiction' scores
         """
-        # First, check if the raw claim (without formatting) appears in context
-        # This handles direct answers like "Bohemond" that appear in context
+        # Preserve the direct-match shortcut for claims without a question.
         claim_clean = claim.strip()
         claim_normalized_raw = re.sub(r'[^\w\s]', '', claim_clean.lower())
         context_normalized = re.sub(r'[^\w\s]', '', context.lower())
+        short_answer_with_query = bool(query and claim_clean and len(claim_clean.split()) <= 10)
+
+        if short_answer_with_query and self._answer_sentence_matches_query(
+            claim_clean, context, query
+        ):
+            return {"contradiction": 0.0, "neutral": 0.0, "entailment": 1.0}
         
         # Check if the raw claim appears as a substring or as a significant phrase
-        if claim_normalized_raw and len(claim_normalized_raw.split()) <= 10:
+        if not query and claim_normalized_raw and len(claim_normalized_raw.split()) <= 10:
             # For short claims, check if they appear directly in context
             if claim_normalized_raw in context_normalized:
                 # For single-word claims, use word boundary matching
@@ -115,9 +181,11 @@ class EntailmentVerifier:
                         "entailment": 1.0
                     }
         
-        # Format claim as a complete sentence if it's not already
-        # Short answers like "2003" or "June 2005" need to be converted to full claims
-        formatted_claim = self._format_claim_for_verification(claim, context, query)
+        # Keep the question attached to short answers that need model verification.
+        if short_answer_with_query:
+            formatted_claim = f"Question: {query.strip()} Answer: {claim_clean.rstrip('.!?')}."
+        else:
+            formatted_claim = self._format_claim_for_verification(claim, context, query)
         
         # Check if the formatted claim's key content appears in context
         # Extract the actual answer from formatted claim (remove "The answer is" etc.)
@@ -134,7 +202,7 @@ class EntailmentVerifier:
         context_words_clean = context_words - stop_words
         
         # If most claim words appear in context, check more carefully
-        if len(claim_words_clean) > 0:
+        if not query and len(claim_words_clean) > 0:
             overlap_ratio = len(claim_words_clean & context_words_clean) / len(claim_words_clean)
             # For high overlap, check if the key content appears as a phrase
             if overlap_ratio >= 0.8:
@@ -181,7 +249,7 @@ class EntailmentVerifier:
         
         # If entailment score is very low but the raw claim appears in context,
         # boost the entailment score (the model might be confused by formatting)
-        if entailment_score < 0.3 and claim_normalized_raw in context_normalized:
+        if not query and entailment_score < 0.3 and claim_normalized_raw in context_normalized:
             # Boost entailment if raw claim is clearly in context
             if len(claim_normalized_raw.split()) <= 5:  # Short answers
                 entailment_score = max(entailment_score, 0.7)

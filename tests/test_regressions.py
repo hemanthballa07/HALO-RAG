@@ -6,6 +6,7 @@ replaced with small test doubles so the suite can run in a lightweight CI job.
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
 import subprocess
 import sys
@@ -275,6 +276,66 @@ class EntailmentVerifierTests(unittest.TestCase):
         self.assertEqual(verifier.label_map[1], "entailment")
         self.assertEqual(verifier.entailment_index, 1)
         self.assertEqual(verifier.neutral_index, 2)
+
+    def test_matching_answer_in_unrelated_sentence_is_not_full_support(self):
+        verifier_module = self.verifier_module()
+
+        class Tensor:
+            def to(self, device):
+                return self
+
+            def cpu(self):
+                return self
+
+            def numpy(self):
+                return np.array([[0.01, 0.01, 0.98]])
+
+        class Tokenizer:
+            hypothesis = None
+
+            def __call__(self, context, hypothesis, **kwargs):
+                self.hypothesis = hypothesis
+                return {"input_ids": Tensor()}
+
+        verifier_module.torch.no_grad = contextlib.nullcontext
+        verifier_module.torch.softmax = lambda logits, dim: logits
+        verifier = verifier_module.EntailmentVerifier.__new__(
+            verifier_module.EntailmentVerifier
+        )
+        verifier.device = "cpu"
+        verifier.max_length = 512
+        verifier.contradiction_index = 0
+        verifier.entailment_index = 1
+        verifier.neutral_index = 2
+        verifier.tokenizer = Tokenizer()
+        verifier.model = lambda **kwargs: types.SimpleNamespace(logits=Tensor())
+
+        result = verifier.verify_claim(
+            "Paris", "The school was founded in Paris.",
+            "Where are the school's campuses?",
+        )
+
+        self.assertLess(result["entailment"], 0.75)
+        self.assertIn("campuses", verifier.tokenizer.hypothesis)
+
+    def test_answer_sentence_keeps_common_abbreviations_together(self):
+        verifier_module = self.verifier_module()
+        matches = verifier_module.EntailmentVerifier._answer_sentence_matches_query
+
+        self.assertTrue(matches(
+            "Paris", "The school was founded in Paris.",
+            "Where was the school founded?",
+        ))
+        self.assertTrue(matches(
+            "St. Bartholomew's Day massacre",
+            "The height of this Huguenot persecution was the St. Bartholomew's Day massacre.",
+            "What event was the worst example of Huguenot persecution?",
+        ))
+        self.assertTrue(matches(
+            "23 June 2005",
+            "On 23 June 2005, Rep. Joe Barton and Ed Whitfield demanded climate research records.",
+            "When did Barton and Whitfield demand climate research records?",
+        ))
 
     def test_generation_verifies_each_claim_once(self):
         verifier_module = self.verifier_module()
