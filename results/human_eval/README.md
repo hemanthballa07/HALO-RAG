@@ -135,6 +135,12 @@ The CSV file contains the following columns:
    - Optionally add notes in the `notes` column
 3. Save the CSV file
 
+Keep the annotated file. The sample generator now refuses to overwrite it;
+use `--output` to create a new review sheet. The agreement scorer requires a
+valid human label on every row and refuses to overwrite an existing report.
+Use `--output` on the scorer to choose a new report path. If both label sets
+contain only one class, Cohen's kappa is undefined and is reported as `null`.
+
 ### Quality Control
 
 - **Consistency**: Ensure consistent labeling across similar samples
@@ -147,7 +153,7 @@ The CSV file contains the following columns:
 After annotation, the scorer script will compute:
 
 - **Percent Match**: Percentage of samples where human_label matches auto_label
-- **Cohen's κ**: Inter-annotator agreement coefficient (if multiple annotators)
+- **Cohen's κ**: Chance-corrected agreement between the verifier and reviewer
 - **Per-label Agreement**: Agreement for each label (SUPPORTED, CONTRADICTED, NO EVIDENCE)
 
 ### Expected Agreement

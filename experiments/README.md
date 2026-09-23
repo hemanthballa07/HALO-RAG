@@ -359,10 +359,16 @@ python experiments/generate_human_eval_samples.py --num-samples 100 --split vali
 python experiments/score_human_eval.py --csv results/human_eval/human_eval_samples.csv
 ```
 
+The generator requires the requested sample count and stops if a sample fails.
+It will not replace an existing CSV; pass `--output` for a new sheet. The scorer
+requires all human labels and will not replace an existing JSON report. Pass
+`--output` there too when scoring a new review. If both sides assign one label
+to every sample, Cohen's κ is undefined and the report records `null`.
+
 **Acceptance Criteria**:
 - 100 rows generated and independently annotated
 - Scorer runs end-to-end and reports observed agreement
-- Cohen's κ is reported with the annotation protocol
+- Cohen's κ is reported when defined by the observed labels
 
 ## CLI Arguments
 

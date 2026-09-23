@@ -4,13 +4,11 @@ Creates a CSV of 100 samples for human annotation.
 """
 
 import sys
-import os
 import argparse
 from pathlib import Path
 import csv
-import json
 import random
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 
 # Add project root to path
 project_root = Path(__file__).parent.parent
@@ -59,6 +57,13 @@ def generate_human_eval_samples(
     Returns:
         List of sample dictionaries
     """
+    if num_samples < 1:
+        raise ValueError("num_samples must be positive")
+    if not (len(queries) == len(ground_truths) == len(relevant_docs)):
+        raise ValueError("queries, ground_truths, and relevant_docs must have equal lengths")
+    if len(queries) < num_samples:
+        raise ValueError(f"requested {num_samples} samples, but only {len(queries)} are available")
+
     # Set random seed
     random.seed(seed)
     np.random.seed(seed)
@@ -80,16 +85,10 @@ def generate_human_eval_samples(
     evaluator = EvaluationMetrics()
     
     # Sample queries (stratified sampling if possible)
-    if len(queries) > num_samples:
-        # Random sampling
-        indices = random.sample(range(len(queries)), num_samples)
-        sampled_queries = [queries[i] for i in indices]
-        sampled_ground_truths = [ground_truths[i] for i in indices]
-        sampled_relevant_docs = [relevant_docs[i] for i in indices]
-    else:
-        sampled_queries = queries
-        sampled_ground_truths = ground_truths
-        sampled_relevant_docs = relevant_docs
+    indices = random.sample(range(len(queries)), num_samples)
+    sampled_queries = [queries[i] for i in indices]
+    sampled_ground_truths = [ground_truths[i] for i in indices]
+    sampled_relevant_docs = [relevant_docs[i] for i in indices]
     
     print(f"Generating {len(sampled_queries)} samples for human evaluation...")
     
@@ -154,13 +153,18 @@ def generate_human_eval_samples(
             
             samples.append(sample)
         
-        except Exception as e:
-            print(f"Error processing query {idx}: {e}")
-            continue
+        except Exception as exc:
+            raise RuntimeError(f"Failed to generate review sample {idx + 1}") from exc
     
     print(f"Generated {len(samples)} samples for human evaluation")
     
     return samples
+
+
+def spreadsheet_safe(value):
+    if isinstance(value, str) and value.lstrip().startswith(("=", "+", "-", "@")):
+        return "'" + value
+    return value
 
 
 def save_human_eval_samples(
@@ -174,7 +178,8 @@ def save_human_eval_samples(
         samples: List of sample dictionaries
         output_path: Output CSV file path
     """
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
     
     # Define columns
     columns = [
@@ -183,12 +188,12 @@ def save_human_eval_samples(
     ]
     
     # Write CSV
-    with open(output_path, 'w', newline='', encoding='utf-8') as f:
+    with output.open('x', newline='', encoding='utf-8') as f:
         writer = csv.DictWriter(f, fieldnames=columns)
         writer.writeheader()
         
         for sample in samples:
-            writer.writerow(sample)
+            writer.writerow({column: spreadsheet_safe(sample.get(column, "")) for column in columns})
     
     print(f"✓ Saved {len(samples)} samples to {output_path}")
 
@@ -202,8 +207,14 @@ def main():
     parser.add_argument("--num-samples", type=int, default=100, help="Number of samples to generate")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--limit", type=int, default=None, help="Limit number of examples from dataset")
+    parser.add_argument("--output", type=Path, default=Path("results/human_eval/human_eval_samples.csv"),
+                        help="New CSV path for the review sheet")
     
     args = parser.parse_args()
+    if args.output.exists():
+        parser.error(f"review file already exists: {args.output}")
+    if args.num_samples < 1:
+        parser.error("--num-samples must be positive")
     
     # Load config
     config = load_config(args.config)
@@ -247,8 +258,9 @@ def main():
     )
     
     # Save samples
-    output_path = "results/human_eval/human_eval_samples.csv"
-    save_human_eval_samples(samples, output_path)
+    if not samples:
+        raise RuntimeError("No human evaluation samples were generated")
+    save_human_eval_samples(samples, args.output)
     
     # Print summary
     print("\n" + "=" * 70)
@@ -266,7 +278,7 @@ def main():
     for label, count in label_counts.items():
         print(f"  {label}: {count} ({count/len(samples)*100:.1f}%)")
     
-    print(f"\n✓ Samples saved to {output_path}")
+    print(f"\n✓ Samples saved to {args.output}")
     print("✓ Annotators can fill in 'human_label' and 'notes' columns")
     print("=" * 70)
     

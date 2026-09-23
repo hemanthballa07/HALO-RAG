@@ -16,4 +16,4 @@ setup-check:
 
 test:
 	$(PYTHON) -m unittest tests.test_regressions -v
-	$(PYTHON) -m pytest -q tests/test_benchmark.py tests/test_review_scoring.py
+	$(PYTHON) -m pytest -q tests/test_benchmark.py tests/test_review_scoring.py tests/test_human_eval_agreement.py

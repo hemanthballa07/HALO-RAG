@@ -7,6 +7,9 @@ import torch
 
 from experiments.evaluate_focused_answers import summarize
 from experiments.export_benchmark_review import review_rows, spreadsheet_safe
+from experiments.generate_human_eval_samples import (
+    generate_human_eval_samples, save_human_eval_samples,
+)
 from experiments.run_representative_benchmark import evaluate_cases
 from src.evaluation.benchmark import BenchmarkCase, BenchmarkSet
 from src.generator.flan_t5_generator import FLANT5Generator
@@ -104,6 +107,24 @@ def test_abstention_marker_accepts_case_and_terminal_punctuation():
     assert FLANT5Generator.is_unanswerable_response("UNANSWERABLE")
     assert FLANT5Generator.is_unanswerable_response("unanswerable.")
     assert not FLANT5Generator.is_unanswerable_response("The answer is unanswerable")
+
+
+def test_human_eval_export_does_not_overwrite_existing_annotations(tmp_path):
+    output = tmp_path / "review.csv"
+    save_human_eval_samples([{"id": "one", "human_label": "SUPPORTED",
+                              "generated_answer": "=HYPERLINK(\"bad\")"}], str(output))
+    original = output.read_bytes()
+    assert b"'=HYPERLINK" in original
+
+    with pytest.raises(FileExistsError):
+        save_human_eval_samples([{"id": "two", "human_label": ""}], str(output))
+
+    assert output.read_bytes() == original
+
+
+def test_human_eval_requires_requested_sample_count_before_loading_models():
+    with pytest.raises(ValueError, match="requested 2 samples"):
+        generate_human_eval_samples(["question"], ["answer"], [[0]], ["passage"], {}, 2)
 
 
 def test_long_passage_keeps_the_question_inside_the_input_limit():
