@@ -170,3 +170,22 @@ def test_iterative_training_dry_run_caps_both_splits(monkeypatch, capsys):
     output = capsys.readouterr().out
     assert "from dry-run cap" in output
     assert "Acceptance criteria are not evaluated for a baseline-only run" in output
+
+
+def test_empty_verified_set_stops_training_before_writing(monkeypatch):
+    writes = []
+    monkeypatch.setattr(exp6, "collect_verified_data", lambda **_kwargs: [])
+    monkeypatch.setattr(exp6, "save_verified_data", lambda *_args: writes.append(True))
+
+    with pytest.raises(RuntimeError, match="Iteration 1 collected no verified training examples"):
+        exp6.collect_verified_training_data(
+            pipeline=None,
+            queries=["question"],
+            ground_truths=["answer"],
+            relevant_docs=[[0]],
+            corpus=["answer"],
+            iteration=1,
+            config={"verification": {"accept_min": 0.85}},
+        )
+
+    assert writes == []

@@ -86,6 +86,12 @@ def collect_verified_training_data(
         factual_precision_threshold=factual_precision_threshold,
         top_k_passages=top_k_passages
     )
+
+    if not verified_examples:
+        raise RuntimeError(
+            f"Iteration {iteration} collected no verified training examples "
+            f"at factual precision threshold {factual_precision_threshold}"
+        )
     
     # Save to JSONL
     output_path = os.path.join(output_dir, f"train_iter{iteration}.jsonl")
@@ -511,10 +517,6 @@ def run_iterative_training(
             iteration=iteration,
             config=config
         )
-        
-        if not verified_examples:
-            logger.warning(f"No verified data collected for iteration {iteration}. Skipping fine-tuning.")
-            continue
         
         # Fine-tune
         verified_data_path = f"data/verified/train_iter{iteration}.jsonl"
