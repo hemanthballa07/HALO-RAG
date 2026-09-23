@@ -42,7 +42,7 @@ class StatisticalTester:
         if len(group1) < 2 or len(group2) < 2:
             return float("nan"), float("nan"), False
         t_stat, p_value = stats.ttest_ind(group1, group2, alternative=alternative)
-        is_significant = p_value < self.alpha
+        is_significant = bool(p_value < self.alpha)
         
         return float(t_stat), float(p_value), is_significant
     
@@ -69,7 +69,7 @@ class StatisticalTester:
             return float("nan"), float("nan"), False
         
         t_stat, p_value = stats.ttest_rel(group1, group2, alternative=alternative)
-        is_significant = p_value < self.alpha
+        is_significant = bool(p_value < self.alpha)
         
         return float(t_stat), float(p_value), is_significant
     

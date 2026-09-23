@@ -1,5 +1,6 @@
 """Fast checks for metric and statistical helper behavior."""
 
+import json
 import unittest
 
 from src.evaluation import EvaluationMetrics, StatisticalTester
@@ -31,6 +32,13 @@ class StatisticalHelperTests(unittest.TestCase):
         self.assertGreater(mean, 0)
         self.assertGreater(standard_deviation, 0)
         self.assertLess(interval[0], interval[1])
+
+    def test_comparison_is_json_serializable(self):
+        comparison = StatisticalTester().compare_metrics(
+            [0.2, 0.4, 0.3], [0.6, 0.75, 0.95]
+        )
+        self.assertIs(type(comparison["is_significant"]), bool)
+        json.dumps(comparison)
 
 
 if __name__ == "__main__":
