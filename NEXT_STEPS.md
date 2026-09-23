@@ -62,14 +62,14 @@ The scoring command should be run only after annotators fill the human-label col
 
 ```bash
 python scripts/create_results_lock.py \
-  --tau 0.75 \
-  --seeds 42 123 456 \
-  --dataset squad_v2 \
-  --split validation
+  --manifest results/metrics/final_runs/RUN_ID/manifest.json
 ```
 
-Review the resulting lock document and ensure it contains the actual commit, configuration,
-dataset split, seed list, and timestamps from the completed run.
+Use the path printed by a completed full runner invocation. The lock command
+checks all eight experiments, three or more distinct seeds, each archived JSON,
+the configuration, and the published aggregate and summary. It refuses an
+incomplete run or an existing `RESULTS_LOCK.md`. The lock covers experiment
+artifacts only; human evaluation remains a separate release requirement.
 
 ## 6. Release review
 

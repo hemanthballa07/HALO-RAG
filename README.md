@@ -94,6 +94,11 @@ The full run checks that each experiment wrote a fresh artifact before counting
 its metrics. Existing fixed-name artifacts cannot establish per-seed provenance,
 so `--skip-runs` is no longer accepted.
 
+After a complete full run, pass its printed manifest path to
+`scripts/create_results_lock.py --manifest PATH`. The script validates the
+archived seed files and published results before creating `RESULTS_LOCK.md`.
+It does not certify the separate human evaluation.
+
 Individual experiments are documented in [experiments/README.md](experiments/README.md).
 Outputs are written under `results/`; checkpoints and downloaded data are intentionally
 excluded from version control.
