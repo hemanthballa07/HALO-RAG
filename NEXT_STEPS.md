@@ -2,14 +2,14 @@
 
 ## Before the full experiment run
 
-1. Make verification check whether the evidence answers the question, not just
-   whether the answer text appears somewhere in a passage. Add negative cases for
-   a matching name or location in an unrelated sentence, then rerun the paired
-   benchmark to measure false acceptance and lost correct answers.
-2. Compare the optional top-passage no-answer setting through the full pipeline
-   on an untouched sample. Report answerable and unanswerable results separately,
-   along with latency and abstention. Keep the three development seeds out of
-   the held-out comparison.
+1. Improve verification beyond lexical co-occurrence. The direct-match regression
+   is covered, but a replay still verified 18 of 30 answers to unanswerable
+   questions. Measure false acceptance and lost correct answers on new samples
+   before setting a release threshold.
+2. Repeat the end-to-end comparison of the optional top-passage no-answer
+   setting on larger untouched samples and other datasets. Seed 789 is a useful
+   20-question check, not enough to choose a default. Report answerable and
+   unanswerable results separately, with latency and abstention.
 3. After selecting a setting, run the release checks below on the target CUDA
    environment. Do not treat the current CPU sample as a release result.
 

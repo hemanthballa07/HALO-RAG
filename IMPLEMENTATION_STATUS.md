@@ -26,10 +26,10 @@ CUDA host with `bitsandbytes`.
 
 ## Known limits
 
-- The verifier currently treats a short answer found anywhere in a passage as
-  fully supported, even when the passage does not answer the question. The
-  optional single-passage no-answer prompt avoids some of these cases, but it
-  does not fix that verification error.
+- Short-answer verification now checks whether an answer-bearing sentence
+  shares content terms with the question before using a direct-match shortcut.
+  This catches obvious unrelated matches, but lexical co-occurrence is not a
+  complete answer-support test. The NLI fallback also makes mistakes.
 - The current FAISS implementation uses an exact inner-product index. It is appropriate
   for the sampled experiment corpora but should be replaced with a trained approximate
   index before indexing millions of passages.
@@ -45,6 +45,7 @@ CUDA host with `bitsandbytes`.
 On September 22, 2026, three seeded SQuAD v2 validation samples used 20 questions
 and 500 passages each, with 10 answerable and 10 unanswerable questions per seed.
 The same cached FLAN-T5 large model generated the answers in all comparisons.
+The baseline and revision runs below preceded the verifier shortcut guard.
 
 | Seed | Baseline exact match | Revision exact match | Top-passage no-answer exact match |
 | --- | ---: | ---: | ---: |
@@ -58,8 +59,29 @@ its exact match was 68.3%, including 56.7% on the 30 unanswerable questions.
 The samples were used while developing the prompt, so they are not a held-out
 estimate of production accuracy. Local per-question results are under
 `results/metrics/benchmark_20q_500docs_seed*_top1_abstain.json` and are ignored
-by Git. A broader untouched sample and an end-to-end pipeline comparison are
-still required.
+by Git. Broader untouched samples are still required.
+
+A verifier-only replay of the saved baseline answers on those same three samples
+reduced verified answers for unanswerable questions from 24 to 18 out of 30.
+It kept all 19 previously verified exact answers verified. This replay held
+retrieval and generation fixed, and it is not a new end-to-end score. False
+acceptance remains substantial, so the verifier needs further work.
+
+A separate seed 789 run tested all three variants end to end on the same
+20 questions and 500 passages. This seed was not used to select the prompt,
+but one small sample is not a release estimate.
+
+| Variant | Overall exact match | Answerable | Unanswerable | Unanswerable false accept | Mean CPU latency |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Baseline | 45% | 90% | 0% | 30% | 2.41 s |
+| Revision | 65% | 70% | 60% | 40% | 2.62 s |
+| Focused, no revision | 95% | 100% | 90% | 0% | 1.06 s |
+
+The focused variant abstained on 9 of 10 unanswerable questions. Its one
+non-abstaining answer was wrong and was not verified. These figures are from
+`results/metrics/benchmark_20q_500docs_seed789_with_focused.json`, which is
+ignored by Git. More seeds, other datasets, and the target CUDA environment
+must be checked before choosing a default.
 
 ## Validation required for a release
 
