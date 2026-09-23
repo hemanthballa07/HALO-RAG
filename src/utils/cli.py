@@ -7,6 +7,18 @@ from typing import Dict, Any, Optional
 from pathlib import Path
 
 
+def resolve_sample_limit(
+    requested: Optional[int], dry_run: bool, dry_run_limit: int,
+    configured: Optional[int] = None,
+) -> Optional[int]:
+    """Use the smaller of an explicit limit and the dry-run cap."""
+    if requested is not None and requested <= 0:
+        raise ValueError("--limit must be a positive integer")
+    if dry_run:
+        return min(requested, dry_run_limit) if requested is not None else dry_run_limit
+    return requested if requested is not None else configured
+
+
 def parse_experiment_args(
     description: str = "Experiment",
     default_config: str = "config/config.yaml"
@@ -65,4 +77,3 @@ def parse_experiment_args(
     )
     
     return parser.parse_args()
-

@@ -35,7 +35,7 @@ from src.pipeline import SelfVerificationRAGPipeline
 from src.generator import FLANT5Generator, QLoRATrainer
 from src.evaluation import EvaluationMetrics
 from src.utils import setup_wandb, log_metrics, log_metadata, get_commit_hash, get_timestamp
-from src.utils.cli import parse_experiment_args
+from src.utils.cli import parse_experiment_args, resolve_sample_limit
 from src.utils.device import qlora_supported, resolve_device
 from datasets import Dataset
 
@@ -733,13 +733,11 @@ def main():
         print("No training limit specified - using full training set")
     
     # Determine validation limit (from --limit arg, --dry-run, or datasets.sample_limit config)
-    val_limit = args.limit  # --limit controls evaluation/validation size
+    val_limit = resolve_sample_limit(
+        args.limit, args.dry_run, 100, config.get("datasets", {}).get("sample_limit")
+    )
     if args.dry_run:
-        val_limit = 100
-        print("⚠ DRY RUN MODE: Using 100 validation samples")
-    elif val_limit is None:
-        # Fall back to datasets.sample_limit config if --limit not provided
-        val_limit = config.get("datasets", {}).get("sample_limit")
+        print(f"⚠ DRY RUN MODE: Using {val_limit} validation samples")
     
     # Load datasets
     print("Loading datasets...")

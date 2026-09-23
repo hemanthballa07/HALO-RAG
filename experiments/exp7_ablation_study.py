@@ -30,6 +30,7 @@ from src.verification.lexical_verifier import LexicalOverlapVerifier
 from src.evaluation import EvaluationMetrics
 from src.utils import setup_wandb, log_metrics, log_metadata, get_commit_hash, get_timestamp
 from src.utils.device import resolve_device
+from src.utils.cli import resolve_sample_limit
 
 
 def load_config(config_path: str = "config/config.yaml"):
@@ -529,9 +530,9 @@ def main():
     config = load_config(args.config)
     
     # Set limit for dry-run
+    args.limit = resolve_sample_limit(args.limit, args.dry_run, 50)
     if args.dry_run:
-        args.limit = 50
-        print("Dry-run mode: limiting to 50 examples")
+        print(f"Dry-run mode: limiting to {args.limit} examples")
     
     # Setup W&B
     wandb_run = None

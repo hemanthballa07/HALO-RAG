@@ -28,7 +28,7 @@ from src.data import load_dataset_from_config, prepare_for_experiments
 from src.pipeline import SelfVerificationRAGPipeline
 from src.evaluation import EvaluationMetrics
 from src.utils import setup_wandb, log_metrics, log_metadata, get_commit_hash, get_timestamp
-from src.utils.cli import parse_experiment_args
+from src.utils.cli import parse_experiment_args, resolve_sample_limit
 from src.utils.device import resolve_device
 
 
@@ -366,12 +366,11 @@ def main():
     thresholds = config.get("verification", {}).get("threshold_sweep", [0.5, 0.6, 0.7, 0.75, 0.8, 0.85, 0.9])
     
     # Determine sample limit
-    sample_limit = args.limit
+    sample_limit = resolve_sample_limit(
+        args.limit, args.dry_run, 30, config.get("datasets", {}).get("sample_limit")
+    )
     if args.dry_run:
-        sample_limit = 30
-        print("⚠ DRY RUN MODE: Using 30 samples")
-    elif sample_limit is None:
-        sample_limit = config.get("datasets", {}).get("sample_limit")
+        print(f"⚠ DRY RUN MODE: Using {sample_limit} samples")
     
     # Load dataset
     print("Loading dataset...")

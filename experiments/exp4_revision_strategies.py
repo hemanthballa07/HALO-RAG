@@ -20,7 +20,7 @@ import random
 from src.data import load_dataset_from_config, prepare_for_experiments
 from src.pipeline import SelfVerificationRAGPipeline
 from src.evaluation import StatisticalTester
-from src.utils.cli import parse_experiment_args
+from src.utils.cli import parse_experiment_args, resolve_sample_limit
 from src.utils.device import resolve_device
 
 
@@ -168,9 +168,9 @@ def main():
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
 
-    sample_limit = 30 if args.dry_run else args.limit
-    if sample_limit is None:
-        sample_limit = config.get("datasets", {}).get("sample_limit")
+    sample_limit = resolve_sample_limit(
+        args.limit, args.dry_run, 30, config.get("datasets", {}).get("sample_limit")
+    )
 
     examples = load_dataset_from_config(config, split=args.split)
     if sample_limit:
