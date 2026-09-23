@@ -1,5 +1,21 @@
 # Human Evaluation Annotation Guide
 
+## Benchmark disagreement review
+
+`experiments/export_benchmark_review.py` can create a separate CSV of nonexact
+answers from saved paired benchmarks. This is a targeted review sheet, not the
+100-sample agreement study described below. For each row, compare the generated
+answer with the question and the evidence passage. Fill in:
+
+- `answers_question`: `YES`, `NO`, or `UNCLEAR`.
+- `supported_by_evidence`: `SUPPORTED`, `CONTRADICTED`, `NO EVIDENCE`, or `UNCLEAR`.
+- `reviewer_notes`: Briefly explain ambiguous or disputed cases.
+
+`source_label` is the original dataset label. It is not a human support judgment.
+If the system abstained, mark the first two fields `NOT APPLICABLE` and note
+whether the source passage appears to contain an answer. Do not overwrite a
+partially annotated review CSV with a new export.
+
 ## Overview
 
 This directory contains samples for human evaluation of the HALO-RAG system. Annotators are asked to evaluate whether the generated answers are supported by the provided context.
@@ -178,4 +194,3 @@ For questions or issues with annotation, please contact the project maintainers.
 - HALO-RAG Project Proposal
 - Evaluation Metrics Documentation
 - Annotation Guidelines Best Practices
-

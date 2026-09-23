@@ -51,6 +51,36 @@ uses the top reranked passage and explicit no-answer prompt, verifies generated
 answers, and leaves revision disabled. The result includes its per-question
 latency and abstention alongside the baseline and revision variants.
 
+To combine compatible runs, pass their result files to
+`summarize_paired_benchmarks.py`:
+
+```bash
+python experiments/summarize_paired_benchmarks.py \
+  results/metrics/benchmark_seed1.json \
+  results/metrics/benchmark_seed2.json \
+  --output results/metrics/paired_summary.json
+```
+
+The summary checks that the dataset, models, configuration, retrieval settings,
+and variants match. It reports split scores, paired improvements and harms, and
+median and 95th-percentile latency. It also lists repeated question IDs across
+runs; repeated questions should not be treated as independent observations.
+
+If label-based errors need review, export the nonexact cases without running
+the models again:
+
+```bash
+python experiments/export_benchmark_review.py \
+  results/metrics/benchmark_seed1.json \
+  results/metrics/benchmark_seed2.json \
+  --variant focused \
+  --output results/human_eval/focused_review.csv
+```
+
+The CSV contains both the source passage and the passage used by the pipeline.
+The human judgment columns are intentionally blank. The exporter refuses to
+overwrite an existing review file.
+
 ## Experiments
 
 ### Experiment 1: Baseline Comparison

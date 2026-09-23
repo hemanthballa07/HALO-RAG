@@ -6,6 +6,7 @@ import pytest
 import torch
 
 from experiments.evaluate_focused_answers import summarize
+from experiments.export_benchmark_review import review_rows, spreadsheet_safe
 from experiments.run_representative_benchmark import evaluate_cases
 from src.evaluation.benchmark import BenchmarkCase, BenchmarkSet
 from src.generator.flan_t5_generator import FLANT5Generator
@@ -188,3 +189,36 @@ def test_paired_benchmark_can_run_focused_mode_on_the_same_case():
     assert calls[2][1]["evidence_limit"] == 1
     assert calls[2][1]["abstain_if_unanswered"] is True
     assert all(row["exact_match"] == 1.0 for variant in rows.values() for row in variant)
+
+
+def test_review_export_keeps_source_and_retrieved_evidence_separate():
+    case = BenchmarkCase(
+        example_id="unanswerable", question="Where?", context="The source passage.",
+        references=(), relevant_doc_id=0, answerable=False,
+    )
+    benchmark = BenchmarkSet(
+        corpus=("The source passage.", "A retrieved passage."),
+        document_hashes=("a", "b"), cases=(case,), seed=3,
+    )
+    source = {
+        "metadata": {"seed": 3},
+        "cases": {"focused": [{
+            "example_id": "unanswerable", "exact_match": 0.0,
+            "reranked_doc_ids": [1], "generated": "Paris", "abstained": False,
+            "verified": True, "final_evidence_hit": 0.0,
+        }]},
+    }
+
+    rows = review_rows(benchmark, source, "focused")
+
+    assert len(rows) == 1
+    assert rows[0]["source_passage"] == "The source passage."
+    assert rows[0]["evidence_passage"] == "A retrieved passage."
+    assert rows[0]["answers_question"] == ""
+    assert rows[0]["supported_by_evidence"] == ""
+
+
+def test_review_export_escapes_spreadsheet_formulas():
+    assert spreadsheet_safe("=2+2") == "'=2+2"
+    assert spreadsheet_safe("  @command") == "'  @command"
+    assert spreadsheet_safe("A normal answer") == "A normal answer"
