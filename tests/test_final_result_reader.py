@@ -96,6 +96,22 @@ def test_runner_rejects_a_success_without_new_artifact(tmp_path, monkeypatch):
     assert artifacts["exp1_baseline"] == {}
 
 
+def test_runner_records_the_subprocess_failure_reason(tmp_path, monkeypatch):
+    monkeypatch.setattr(runner, "project_root", tmp_path)
+    monkeypatch.setattr(
+        runner, "run_experiment",
+        lambda *_args: {"status": "error", "error": "Traceback\nPermissionError: cache is read-only\n"},
+    )
+
+    results, failures, artifacts = runner.aggregate_results_across_seeds(
+        ["exp1_baseline"], [42], archive_dir=tmp_path / "archive"
+    )
+
+    assert results == {}
+    assert failures == ["exp1_baseline (seed 42): experiment failed: PermissionError: cache is read-only"]
+    assert artifacts["exp1_baseline"] == {}
+
+
 @pytest.mark.parametrize("write_result,extra_args,expected_status,exit_code", [
     (False, [], "incomplete", 1),
     (True, [], "diagnostic", 0),

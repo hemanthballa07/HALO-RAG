@@ -49,6 +49,12 @@ def artifact_signature(path: Path) -> tuple[int, int, str] | None:
     return stat.st_mtime_ns, stat.st_size, hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def failure_reason(stderr: str | None) -> str:
+    """Keep the useful final error line without storing a full traceback in the manifest."""
+    lines = [line.strip() for line in (stderr or "").splitlines() if line.strip()]
+    return lines[-1][:300] if lines else "no stderr output"
+
+
 def run_experiment(experiment_name: str, seed: int, config_path: str = "config/config.yaml", 
                    split: str = "validation", limit: int = None, dry_run: bool = False) -> Dict[str, Any]:
     """
@@ -75,7 +81,7 @@ def run_experiment(experiment_name: str, seed: int, config_path: str = "config/c
            "--split", split,
            "--seed", str(seed)]
     
-    if limit:
+    if limit is not None:
         cmd.extend(["--limit", str(limit)])
     if dry_run:
         cmd.append("--dry-run")
@@ -87,7 +93,7 @@ def run_experiment(experiment_name: str, seed: int, config_path: str = "config/c
         print(f"✓ {experiment_name} completed with seed {seed}")
         return {"status": "success", "output": result.stdout, "error": result.stderr}
     except subprocess.CalledProcessError as e:
-        print(f"✗ {experiment_name} failed with seed {seed}: {e}")
+        print(f"✗ {experiment_name} failed with seed {seed}: {failure_reason(e.stderr)}")
         return {"status": "error", "output": e.stdout, "error": e.stderr}
 
 
@@ -131,7 +137,10 @@ def aggregate_results_across_seeds(experiments: List[str], seeds: List[int],
             before = artifact_signature(artifact_path)
             run_result = run_experiment(exp_name, seed, config_path, split, limit, dry_run)
             if run_result["status"] != "success":
-                failures.append(f"{exp_name} (seed {seed}): experiment failed")
+                failures.append(
+                    f"{exp_name} (seed {seed}): experiment failed: "
+                    f"{failure_reason(run_result.get('error'))}"
+                )
                 continue
             after = artifact_signature(artifact_path)
             if after is None or after == before:
