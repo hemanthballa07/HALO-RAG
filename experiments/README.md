@@ -243,7 +243,7 @@ The final experiment runner checks this before starting any of the eight experim
 # Full experiment (3 iterations)
 python experiments/exp6_iterative_training.py --iterations 3
 
-# Dry run (≤100 examples)
+# Dry run (at most 100 training and 100 validation examples)
 python experiments/exp6_iterative_training.py --dry-run
 
 # Custom limit

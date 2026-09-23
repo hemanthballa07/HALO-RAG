@@ -697,7 +697,8 @@ def main():
         default="validation",
         help="Evaluation split; training always uses the train split",
     )
-    parser.add_argument("--dry-run", action="store_true", help="Dry run with ≤100 examples")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="Cap training and validation at 100 examples each")
     parser.add_argument("--no-wandb", action="store_true", help="Disable W&B logging")
     
     args = parser.parse_args()
@@ -727,9 +728,14 @@ def main():
             "Experiment 6 requires a CUDA device and bitsandbytes for QLoRA training."
         )
     
-    # Determine training limit (ONLY from exp6.train_limit config)
-    train_limit = config.get("experiments", {}).get("exp6", {}).get("train_limit")
-    if train_limit:
+    # The validation --limit does not affect training, but dry runs cap both splits.
+    train_limit = resolve_sample_limit(
+        config.get("experiments", {}).get("exp6", {}).get("train_limit"),
+        args.dry_run, 100,
+    )
+    if args.dry_run:
+        print(f"Dry-run mode: limiting training to {train_limit} examples")
+    elif train_limit:
         print(f"Training limit from config: {train_limit} examples")
     else:
         print("No training limit specified - using full training set")
@@ -770,7 +776,8 @@ def main():
     # Apply training limit (only to training split)
     if train_limit:
         train_examples = train_examples[:train_limit]
-        print(f"Limited training to {len(train_examples)} examples (from exp6.train_limit config)")
+        source = "dry-run cap" if args.dry_run else "exp6.train_limit config"
+        print(f"Limited training to {len(train_examples)} examples (from {source})")
     
     # Apply validation limit (only to validation split, if specified)
     if val_limit:
@@ -889,23 +896,28 @@ def main():
         fp = metrics.get("factual_precision", 0)
         print(f"{iteration:<12} {hr:<20.4f} {vf1:<15.4f} {f1:<15.4f} {fp:<15.4f}")
     
-    # Check acceptance criteria
-    print("\n" + "=" * 70)
-    print("Acceptance Criteria Check:")
-    print("=" * 70)
-    
-    baseline_hr = iteration_results[0]["metrics"].get("hallucination_rate", 0)
-    final_hr = iteration_results[iterations[-1]]["metrics"].get("hallucination_rate", 0)
-    hr_reduction = ((baseline_hr - final_hr) / baseline_hr * 100) if baseline_hr > 0 else 0
-    
-    baseline_vf1 = iteration_results[0]["metrics"].get("verified_f1", 0)
-    final_vf1 = iteration_results[iterations[-1]]["metrics"].get("verified_f1", 0)
-    vf1_improvement = final_vf1 - baseline_vf1
-    
-    print(f"Hallucination Rate reduction: {hr_reduction:.2f}% ({'✓' if hr_reduction >= 10 else '✗'} target: ≥10% per iteration)")
-    print(f"Verified F1 improvement: {vf1_improvement:.4f} ({'✓' if vf1_improvement > 0 else '✗'} target: >0)")
-    print(f"Final Hallucination Rate: {final_hr:.4f} ({'✓' if final_hr <= 0.10 else '✗'} target: ≤0.10)")
-    print("=" * 70)
+    if iterations[-1] == 0:
+        if results["total_iterations"] == 0:
+            print("\nAcceptance criteria are not evaluated for a baseline-only run.")
+        else:
+            print("\nNo training iteration completed; acceptance criteria cannot be evaluated.")
+    else:
+        print("\n" + "=" * 70)
+        print("Acceptance Criteria Check:")
+        print("=" * 70)
+
+        baseline_hr = iteration_results[0]["metrics"].get("hallucination_rate", 0)
+        final_hr = iteration_results[iterations[-1]]["metrics"].get("hallucination_rate", 0)
+        hr_reduction = ((baseline_hr - final_hr) / baseline_hr * 100) if baseline_hr > 0 else 0
+
+        baseline_vf1 = iteration_results[0]["metrics"].get("verified_f1", 0)
+        final_vf1 = iteration_results[iterations[-1]]["metrics"].get("verified_f1", 0)
+        vf1_improvement = final_vf1 - baseline_vf1
+
+        print(f"Hallucination Rate reduction: {hr_reduction:.2f}% ({'✓' if hr_reduction >= 10 else '✗'} target: ≥10% per iteration)")
+        print(f"Verified F1 improvement: {vf1_improvement:.4f} ({'✓' if vf1_improvement > 0 else '✗'} target: >0)")
+        print(f"Final Hallucination Rate: {final_hr:.4f} ({'✓' if final_hr <= 0.10 else '✗'} target: ≤0.10)")
+        print("=" * 70)
     
     # Close W&B run
     if wandb_run:

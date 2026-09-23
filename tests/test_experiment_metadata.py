@@ -1,11 +1,13 @@
 """Experiment artifacts retain the run identity checked by the final reader."""
 
 import json
+import sys
 from types import SimpleNamespace
 
 import pytest
 
 from experiments import exp4_revision_strategies as exp4
+from experiments import exp6_iterative_training as exp6
 from experiments import exp7_ablation_study as exp7
 from experiments import exp8_stress_test as exp8
 
@@ -123,3 +125,48 @@ def test_stress_tests_fail_when_a_query_fails(monkeypatch, runner_name, extra, e
             corpus=["answer"], config={"experiments": {"device": "cpu"}},
             limit=1, **extra,
         )
+
+
+def test_iterative_training_dry_run_caps_both_splits(monkeypatch, capsys):
+    calls = []
+    saved = []
+    config = {
+        "datasets": {"active": "squad_v2"},
+        "experiments": {"device": "cpu", "exp6": {"train_limit": 10000}},
+    }
+
+    def load_examples(_config, split, limit):
+        calls.append((split, limit))
+        return [{"id": split, "question": split, "context": split}]
+
+    def prepare_examples(examples):
+        return (
+            [example["question"] for example in examples],
+            ["answer"] * len(examples),
+            [[index] for index in range(len(examples))],
+            [example["context"] for example in examples],
+        )
+
+    monkeypatch.setattr(exp6, "load_config", lambda _path: config)
+    monkeypatch.setattr(exp6, "resolve_device", lambda _preferred: "cpu")
+    monkeypatch.setattr(exp6, "load_dataset_from_config", load_examples)
+    monkeypatch.setattr(exp6, "prepare_for_experiments", prepare_examples)
+    monkeypatch.setattr(exp6, "run_iterative_training", lambda **_kwargs: {
+        "iteration_results": {0: {"metrics": {"f1_score": 0.5}}},
+        "total_iterations": 0,
+    })
+    monkeypatch.setattr(exp6, "save_results", lambda results: saved.append(results))
+    monkeypatch.setattr(exp6, "plot_iteration_curves", lambda _results: None)
+    monkeypatch.setattr(sys, "argv", [
+        "exp6_iterative_training.py", "--iterations", "0", "--limit", "2",
+        "--dry-run", "--no-wandb",
+    ])
+
+    exp6.main()
+
+    assert calls == [("train", 100), ("validation", 2)]
+    assert saved[0]["metadata"]["train_limit"] == 100
+    assert saved[0]["metadata"]["val_limit"] == 2
+    output = capsys.readouterr().out
+    assert "from dry-run cap" in output
+    assert "Acceptance criteria are not evaluated for a baseline-only run" in output
