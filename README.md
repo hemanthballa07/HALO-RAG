@@ -63,6 +63,19 @@ This writes per-question answers and aggregate metrics to
 first run. The benchmark evaluates the same questions and corpus in both variants;
 it does not train or tune the system.
 
+To test the optional single-passage no-answer prompt against that saved sample:
+
+```bash
+python experiments/evaluate_focused_answers.py \
+  --benchmark results/metrics/representative_benchmark.json
+```
+
+This is a generation-only comparison. It does not replace the full pipeline or
+validate the verifier and revision path.
+For an individual pipeline call, `generate(question, evidence_limit=1,
+abstain_if_unanswered=True, do_sample=False)` enables the same experimental
+prompt. The default behavior is unchanged.
+
 Run the complete experiment sequence:
 
 ```bash

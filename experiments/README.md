@@ -26,6 +26,25 @@ per-question predictions too. The `false_accept_rate` is reported only for
 unanswerable questions and counts verified non-abstaining answers;
 `unanswerable_answer_rate` counts every nonempty non-abstaining answer.
 
+## Focused no-answer prompt
+
+`evaluate_focused_answers.py` reads a saved paired benchmark, checks that its
+question IDs and passage hashes still match the dataset, and runs the generator
+against only the top reranked passage. The prompt permits an explicit
+`UNANSWERABLE` response. It scores the same references as the paired benchmark.
+
+```bash
+python experiments/evaluate_focused_answers.py \
+  --benchmark results/metrics/representative_benchmark.json
+```
+
+The output is saved beside the source file with `_top1_abstain` added to its name.
+Use `--prompt standard` to measure passage selection without changing the
+generator prompt.
+This trial does not rerun retrieval, verification, or revision. It is an
+experimental answer-generation setting, not a substitute for an end-to-end
+pipeline comparison.
+
 ## Experiments
 
 ### Experiment 1: Baseline Comparison
