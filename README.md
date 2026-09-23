@@ -85,6 +85,15 @@ Run the complete experiment sequence:
 python experiments/run_final_experiments.py --dry-run
 ```
 
+The runner archives the JSON produced for each seed under
+`results/metrics/final_runs/`. Failed, incomplete, dry, limited, or partial
+experiment runs keep a manifest there but do not publish `final_summary.csv`
+or `final_aggregated_results.json`. Publication requires all eight experiments
+and at least three distinct seeds.
+The full run checks that each experiment wrote a fresh artifact before counting
+its metrics. Existing fixed-name artifacts cannot establish per-seed provenance,
+so `--skip-runs` is no longer accepted.
+
 Individual experiments are documented in [experiments/README.md](experiments/README.md).
 Outputs are written under `results/`; checkpoints and downloaded data are intentionally
 excluded from version control.

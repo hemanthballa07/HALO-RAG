@@ -44,8 +44,10 @@ python experiments/run_final_experiments.py \
   --copy-plots
 ```
 
-The runner now returns a nonzero status if an experiment fails or does not produce a
-metrics artifact. Do not publish a partial summary as a complete run.
+The runner returns a nonzero status if an experiment fails, skips queries, or does
+not produce a fresh metrics artifact. It archives each seed's JSON and writes a
+manifest. Diagnostic and incomplete runs do not publish final summary files.
+Check the manifest before reporting results.
 
 ## 4. Complete human evaluation
 
