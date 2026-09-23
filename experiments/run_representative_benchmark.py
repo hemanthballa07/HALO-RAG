@@ -34,6 +34,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--top-k-rerank", type=int, default=5)
     parser.add_argument("--max-revisions", type=int, default=1)
     parser.add_argument(
+        "--include-focused", action="store_true",
+        help="Also test one reranked passage with the explicit no-answer prompt",
+    )
+    parser.add_argument(
         "--output", default="results/metrics/representative_benchmark.json"
     )
     return parser.parse_args()
@@ -45,19 +49,29 @@ def set_seed(seed: int) -> None:
     torch.manual_seed(seed)
 
 
-def evaluate_cases(pipeline, benchmark, seed: int, top_k_retrieve: int, top_k_rerank: int):
-    """Run both variants on identical questions and identical initial RNG states."""
+def evaluate_cases(
+    pipeline, benchmark, seed: int, top_k_retrieve: int, top_k_rerank: int,
+    include_focused: bool = False,
+):
+    """Run selected variants on identical questions and initial RNG states."""
     rows = {"baseline": [], "revision": []}
+    if include_focused:
+        rows["focused"] = []
     for index, case in enumerate(benchmark.cases):
         for variant in rows:
             pipeline.enable_revision = variant == "revision"
             set_seed(seed + index)
             start = time.perf_counter()
+            focused_kwargs = (
+                {"evidence_limit": 1, "abstain_if_unanswered": True}
+                if variant == "focused" else {}
+            )
             result = pipeline.generate(
                 case.question,
                 top_k_retrieve=top_k_retrieve,
                 top_k_rerank=top_k_rerank,
                 do_sample=False,
+                **focused_kwargs,
             )
             elapsed = time.perf_counter() - start
             scores = score_answer(
@@ -129,7 +143,8 @@ def main() -> int:
         revision_config=revision_config,
     )
     rows = evaluate_cases(
-        pipeline, benchmark, args.seed, args.top_k_retrieve, args.top_k_rerank
+        pipeline, benchmark, args.seed, args.top_k_retrieve, args.top_k_rerank,
+        include_focused=args.include_focused,
     )
     summaries = {variant: summarize_results(values) for variant, values in rows.items()}
     comparison = {
@@ -150,6 +165,15 @@ def main() -> int:
             for baseline, revised in zip(rows["baseline"], rows["revision"])
         ),
     }
+    if args.include_focused:
+        comparison["focused_exact_match_delta"] = (
+            summaries["focused"]["overall"]["exact_match"]
+            - summaries["baseline"]["overall"]["exact_match"]
+        )
+        comparison["focused_f1_delta"] = (
+            summaries["focused"]["overall"]["f1"]
+            - summaries["baseline"]["overall"]["f1"]
+        )
     payload = {
         "metadata": {
             "dataset": "squad_v2",
@@ -160,6 +184,7 @@ def main() -> int:
             "top_k_retrieve": args.top_k_retrieve,
             "top_k_rerank": args.top_k_rerank,
             "max_revisions": args.max_revisions,
+            "variants": list(rows),
             "config_sha256": hashlib.sha256(config_bytes).hexdigest(),
             "document_sha256": list(benchmark.document_hashes),
             "question_ids": [case.example_id for case in benchmark.cases],

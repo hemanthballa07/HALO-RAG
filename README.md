@@ -62,6 +62,9 @@ This writes per-question answers and aggregate metrics to
 `results/metrics/representative_benchmark.json`. The models must be downloaded on the
 first run. The benchmark evaluates the same questions and corpus in both variants;
 it does not train or tune the system.
+Add `--include-focused` to compare the optional single-passage no-answer setting
+through retrieval, generation, and verification on the same sample. Focused mode
+does not run revision.
 
 To test the optional single-passage no-answer prompt against that saved sample:
 

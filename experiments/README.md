@@ -45,6 +45,12 @@ This trial does not rerun retrieval, verification, or revision. It is an
 experimental answer-generation setting, not a substitute for an end-to-end
 pipeline comparison.
 
+For an end-to-end comparison on the same sampled corpus and questions, run
+`run_representative_benchmark.py` with `--include-focused`. That third variant
+uses the top reranked passage and explicit no-answer prompt, verifies generated
+answers, and leaves revision disabled. The result includes its per-question
+latency and abstention alongside the baseline and revision variants.
+
 ## Experiments
 
 ### Experiment 1: Baseline Comparison

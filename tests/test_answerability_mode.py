@@ -6,6 +6,8 @@ import pytest
 import torch
 
 from experiments.evaluate_focused_answers import summarize
+from experiments.run_representative_benchmark import evaluate_cases
+from src.evaluation.benchmark import BenchmarkCase, BenchmarkSet
 from src.generator.flan_t5_generator import FLANT5Generator
 from src.pipeline.rag_pipeline import SelfVerificationRAGPipeline
 
@@ -151,3 +153,38 @@ def test_focused_summary_keeps_answerability_groups_separate():
     assert result["overall"]["exact_match"] == 1.0
     assert result["answerable"]["abstained"] == 0.0
     assert result["unanswerable"]["abstained"] == 1.0
+
+
+def test_paired_benchmark_can_run_focused_mode_on_the_same_case():
+    case = BenchmarkCase(
+        example_id="sample", question="Where?", context="Paris", references=("Paris",),
+        relevant_doc_id=0, answerable=True,
+    )
+    benchmark = BenchmarkSet(
+        corpus=("Paris", "London"), document_hashes=("a", "b"), cases=(case,), seed=42,
+    )
+    calls = []
+
+    class Pipeline:
+        enable_revision = False
+
+        def generate(self, query, **kwargs):
+            calls.append((self.enable_revision, kwargs))
+            return {
+                "generated_text": "Paris",
+                "initial_retrieved_docs": [0, 1],
+                "initial_reranked_docs": [0, 1],
+                "retrieved_docs": [0, 1],
+                "reranked_docs": [0],
+                "verified": True,
+                "abstained": False,
+                "revision_iterations": 0,
+            }
+
+    rows = evaluate_cases(Pipeline(), benchmark, 42, 20, 5, include_focused=True)
+
+    assert list(rows) == ["baseline", "revision", "focused"]
+    assert [enabled for enabled, _ in calls] == [False, True, False]
+    assert calls[2][1]["evidence_limit"] == 1
+    assert calls[2][1]["abstain_if_unanswered"] is True
+    assert all(row["exact_match"] == 1.0 for variant in rows.values() for row in variant)
