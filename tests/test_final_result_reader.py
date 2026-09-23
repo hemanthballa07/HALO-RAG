@@ -107,6 +107,10 @@ def test_main_does_not_publish_incomplete_or_diagnostic_results(
     monkeypatch.setattr(runner, "project_root", tmp_path)
     source = tmp_path / "results/metrics" / RESULT_FILES["exp1_baseline"]
     source.parent.mkdir(parents=True)
+    config = tmp_path / "config/config.yaml"
+    config.parent.mkdir(parents=True)
+    config.write_text("verification:\n  threshold: 0.75\ndatasets:\n  active: squad_v2\n",
+                      encoding="utf-8")
 
     def run_experiment(_name, _seed, *_args):
         if write_result:
@@ -115,7 +119,6 @@ def test_main_does_not_publish_incomplete_or_diagnostic_results(
         return {"status": "success"}
 
     monkeypatch.setattr(runner, "run_experiment", run_experiment)
-    monkeypatch.setattr(runner, "load_config", lambda _path: {"verification": {"threshold": 0.75}})
     monkeypatch.setattr(sys, "argv", ["run_final_experiments.py", "--experiments", "exp1_baseline",
                                        "--seeds", "42", *extra_args])
 
@@ -136,3 +139,30 @@ def test_missing_plot_set_is_not_partly_published(tmp_path, monkeypatch):
 
     assert missing
     assert not (figures / "final").exists()
+
+
+def test_configuration_change_marks_run_incomplete(tmp_path, monkeypatch):
+    monkeypatch.setattr(runner, "project_root", tmp_path)
+    config = tmp_path / "config/config.yaml"
+    config.parent.mkdir(parents=True)
+    config.write_text("verification:\n  threshold: 0.75\ndatasets:\n  active: squad_v2\n",
+                      encoding="utf-8")
+    source = tmp_path / "results/metrics" / RESULT_FILES["exp1_baseline"]
+    source.parent.mkdir(parents=True)
+
+    def run_experiment(*_args):
+        source.write_text('{"aggregated_metrics": {"f1_score": {"mean": 0.5}}}',
+                          encoding="utf-8")
+        config.write_text(config.read_text(encoding="utf-8") + "# changed\n",
+                          encoding="utf-8")
+        return {"status": "success"}
+
+    monkeypatch.setattr(runner, "run_experiment", run_experiment)
+    monkeypatch.setattr(sys, "argv", ["run_final_experiments.py", "--experiments", "exp1_baseline",
+                                       "--seeds", "42"])
+
+    assert runner.main() == 1
+    manifest_path = next((tmp_path / "results/metrics/final_runs").glob("*/manifest.json"))
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["status"] == "incomplete"
+    assert "configuration changed during the run" in manifest["failures"]

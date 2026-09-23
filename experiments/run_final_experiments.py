@@ -306,7 +306,15 @@ def main():
     unknown = set(args.experiments) - set(RESULT_FILES)
     if unknown:
         parser.error(f"unknown experiments: {', '.join(sorted(unknown))}")
+    config_path = Path(args.config)
+    if not config_path.is_absolute():
+        config_path = project_root / config_path
     config = load_config(args.config)
+    config_hash = hashlib.sha256(config_path.read_bytes()).hexdigest()
+    try:
+        config_reference = str(config_path.relative_to(project_root))
+    except ValueError:
+        config_reference = str(config_path)
     threshold = float(config["verification"]["threshold"])
     if not 0 <= threshold <= 1:
         parser.error("configured verification threshold must be between 0 and 1")
@@ -333,6 +341,8 @@ def main():
         threshold=threshold,
         archive_dir=archive_dir,
     )
+    if hashlib.sha256(config_path.read_bytes()).hexdigest() != config_hash:
+        failures.append("configuration changed during the run")
     diagnostic = (
         args.dry_run or args.limit is not None or len(args.seeds) < 3
         or set(args.experiments) != set(RESULT_FILES)
@@ -354,6 +364,9 @@ def main():
         "limit": args.limit,
         "dry_run": args.dry_run,
         "selected_threshold": threshold,
+        "config_path": config_reference,
+        "config_sha256": config_hash,
+        "dataset": config["datasets"]["active"],
         "timestamp": get_timestamp(),
         "commit_hash": get_commit_hash(),
     }
