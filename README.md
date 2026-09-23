@@ -111,6 +111,12 @@ Individual experiments are documented in [experiments/README.md](experiments/REA
 Outputs are written under `results/`; checkpoints and downloaded data are intentionally
 excluded from version control.
 
+## Optional local API
+
+An optional API intended for localhost use serves answers from the current pipeline with an
+explicit corpus file. It does not load a trained Exp6 checkpoint or replace the
+experiment runner. See [halo_rag_service/README.md](halo_rag_service/README.md).
+
 ## Development
 
 ```bash
