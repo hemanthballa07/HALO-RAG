@@ -851,6 +851,9 @@ def main():
     # Add metadata to results
     results["metadata"] = {
         "dataset": dataset_name,
+        "split": args.split,
+        "sample_limit": val_limit,
+        "total_queries": len(val_queries),
         "iterations": iterations,
         "train_limit": train_limit,
         "val_limit": val_limit,

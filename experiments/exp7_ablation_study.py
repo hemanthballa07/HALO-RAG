@@ -307,9 +307,10 @@ def run_ablation_study(
                     "metrics": metrics
                 })
                 
-            except Exception as e:
-                print(f"Error processing query {idx} in {variant_name}: {e}")
-                continue
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Failed to process query {idx} in {variant_name}"
+                ) from exc
         
         all_results[variant_name] = results
         all_metrics[variant_name] = metrics_list
@@ -391,7 +392,8 @@ def run_ablation_study(
     }
 
 
-def save_results(results: Dict[str, Any], output_dir: str = "results/metrics"):
+def save_results(results: Dict[str, Any], metadata: Dict[str, Any],
+                 output_dir: str = "results/metrics"):
     """Save results to CSV and JSON."""
     os.makedirs(output_dir, exist_ok=True)
     
@@ -427,6 +429,7 @@ def save_results(results: Dict[str, Any], output_dir: str = "results/metrics"):
         json.dump({
             "aggregated": aggregated,
             "drops": drops,
+            "metadata": metadata,
             "timestamp": get_timestamp(),
             "commit_hash": get_commit_hash()
         }, f, indent=2)
@@ -577,7 +580,15 @@ def main():
     )
     
     # Save results
-    save_results(results)
+    save_results(results, metadata={
+        "dataset": config["datasets"]["active"],
+        "split": args.split,
+        "sample_limit": args.limit,
+        "total_queries": (
+            min(len(queries), args.limit) if args.limit is not None else len(queries)
+        ),
+        "seed": args.seed,
+    })
     
     # Plot results
     plot_ablation_results(results)

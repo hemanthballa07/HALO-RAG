@@ -20,6 +20,7 @@ import random
 from src.data import load_dataset_from_config, prepare_for_experiments
 from src.pipeline import SelfVerificationRAGPipeline
 from src.evaluation import StatisticalTester
+from src.utils import get_commit_hash, get_timestamp
 from src.utils.cli import parse_experiment_args, resolve_sample_limit
 from src.utils.device import resolve_device
 
@@ -36,7 +37,8 @@ def run_revision_strategies_experiment(
     ground_truths: List[str],
     relevant_docs: List[List[int]],
     corpus: List[str],
-    config: Dict[str, Any]
+    config: Dict[str, Any],
+    metadata: Dict[str, Any],
 ):
     """
     Compare revision strategies.
@@ -47,6 +49,7 @@ def run_revision_strategies_experiment(
         relevant_docs: List of relevant document IDs for each query
         corpus: List of documents
         config: Configuration dictionary
+        metadata: Dataset and run identity saved with the results
     """
     device = resolve_device(config.get("experiments", {}).get("device", "auto"))
     
@@ -134,7 +137,8 @@ def run_revision_strategies_experiment(
             "baseline_metrics": baseline_aggregated,
             "revision_metrics": revision_aggregated,
             "statistical_comparisons": comparisons,
-            "revision_statistics": revision_stats
+            "revision_statistics": revision_stats,
+            "metadata": metadata,
         }, f, indent=2, default=lambda value: value.item())
     
     print("\n=== Experiment 4: Revision Strategies ===")
@@ -185,6 +189,15 @@ def main():
         relevant_docs=relevant_docs,
         corpus=corpus,
         config=config,
+        metadata={
+            "dataset": config["datasets"]["active"],
+            "split": args.split,
+            "sample_limit": sample_limit,
+            "total_queries": len(queries),
+            "seed": args.seed,
+            "commit_hash": get_commit_hash(),
+            "timestamp": get_timestamp(),
+        },
     )
 
 

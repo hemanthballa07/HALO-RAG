@@ -79,13 +79,24 @@ def load_metrics(path: Path, experiment_name: str, threshold: float,
     if not isinstance(payload, dict):
         raise ValueError(f"{path} must contain a JSON object")
     try:
-        metadata = payload.get("metadata", {})
-        if expected_seed is not None and "seed" in metadata:
-            if metadata["seed"] != expected_seed:
-                raise ValueError(f"artifact seed {metadata['seed']} does not match {expected_seed}")
-        if expected_split is not None and "split" in metadata:
-            if metadata["split"] != expected_split:
-                raise ValueError(f"artifact split {metadata['split']} does not match {expected_split}")
+        metadata = payload.get("metadata")
+        if expected_seed is not None or expected_split is not None:
+            if not isinstance(metadata, dict):
+                raise ValueError("artifact is missing run metadata")
+            for field in ("seed", "split", "sample_limit", "total_queries"):
+                if field not in metadata:
+                    raise ValueError(f"artifact metadata is missing {field}")
+            if (isinstance(metadata["total_queries"], bool)
+                    or not isinstance(metadata["total_queries"], int)
+                    or metadata["total_queries"] <= 0):
+                raise ValueError("artifact metadata has invalid total_queries")
+            if ("total_queries" in payload
+                    and payload["total_queries"] != metadata["total_queries"]):
+                raise ValueError("artifact query count disagrees with metadata")
+        if expected_seed is not None and metadata["seed"] != expected_seed:
+            raise ValueError(f"artifact seed {metadata['seed']} does not match {expected_seed}")
+        if expected_split is not None and metadata["split"] != expected_split:
+            raise ValueError(f"artifact split {metadata['split']} does not match {expected_split}")
         return select_metrics(experiment_name, payload, threshold)
     except (KeyError, TypeError, ValueError) as exc:
         raise ValueError(f"invalid {experiment_name} result in {path}: {exc}") from exc

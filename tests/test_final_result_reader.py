@@ -48,13 +48,42 @@ def test_reader_rejects_missing_threshold_and_empty_metrics():
 def test_reader_checks_embedded_seed_when_available(tmp_path):
     artifact = tmp_path / "result.json"
     artifact.write_text(json.dumps({
-        "metadata": {"seed": 42, "split": "validation"},
+        "metadata": {"seed": 42, "split": "validation", "sample_limit": 2,
+                     "total_queries": 2},
         "aggregated_metrics": {"f1_score": {"mean": 0.5}},
     }), encoding="utf-8")
 
     with pytest.raises(ValueError, match="artifact seed 42 does not match 123"):
         load_metrics(artifact, "exp1_baseline", 0.75, expected_seed=123)
     assert load_metrics(artifact, "exp1_baseline", 0.75, expected_seed=42)["f1_score"] == 0.5
+
+
+def test_reader_requires_provenance_for_archived_runs(tmp_path):
+    artifact = tmp_path / "result.json"
+    artifact.write_text(json.dumps({
+        "aggregated_metrics": {"f1_score": {"mean": 0.5}},
+    }), encoding="utf-8")
+    with pytest.raises(ValueError, match="missing run metadata"):
+        load_metrics(artifact, "exp1_baseline", 0.75, expected_seed=42,
+                     expected_split="validation")
+
+    artifact.write_text(json.dumps({
+        "metadata": {"seed": 42, "split": "validation", "sample_limit": 2},
+        "aggregated_metrics": {"f1_score": {"mean": 0.5}},
+    }), encoding="utf-8")
+    with pytest.raises(ValueError, match="missing total_queries"):
+        load_metrics(artifact, "exp1_baseline", 0.75, expected_seed=42,
+                     expected_split="validation")
+
+    artifact.write_text(json.dumps({
+        "metadata": {"seed": 42, "split": "validation", "sample_limit": 2,
+                     "total_queries": 2},
+        "total_queries": 3,
+        "aggregated_metrics": {"f1_score": {"mean": 0.5}},
+    }), encoding="utf-8")
+    with pytest.raises(ValueError, match="query count disagrees"):
+        load_metrics(artifact, "exp1_baseline", 0.75, expected_seed=42,
+                     expected_split="validation")
 
 
 def test_runner_archives_each_seed_before_the_next_run(tmp_path, monkeypatch):
@@ -64,6 +93,8 @@ def test_runner_archives_each_seed_before_the_next_run(tmp_path, monkeypatch):
 
     def run_experiment(_name, seed, *_args):
         source.write_text(json.dumps({
+            "metadata": {"seed": seed, "split": "validation", "sample_limit": None,
+                         "total_queries": 10},
             "aggregated_metrics": {"f1_score": {"mean": seed / 10}}
         }), encoding="utf-8")
         return {"status": "success"}
@@ -130,8 +161,11 @@ def test_main_does_not_publish_incomplete_or_diagnostic_results(
 
     def run_experiment(_name, _seed, *_args):
         if write_result:
-            source.write_text('{"aggregated_metrics": {"f1_score": {"mean": 0.5}}}',
-                              encoding="utf-8")
+            source.write_text(json.dumps({
+                "metadata": {"seed": 42, "split": "validation", "sample_limit": None,
+                             "total_queries": 10},
+                "aggregated_metrics": {"f1_score": {"mean": 0.5}},
+            }), encoding="utf-8")
         return {"status": "success"}
 
     monkeypatch.setattr(runner, "run_experiment", run_experiment)
@@ -167,8 +201,11 @@ def test_configuration_change_marks_run_incomplete(tmp_path, monkeypatch):
     source.parent.mkdir(parents=True)
 
     def run_experiment(*_args):
-        source.write_text('{"aggregated_metrics": {"f1_score": {"mean": 0.5}}}',
-                          encoding="utf-8")
+        source.write_text(json.dumps({
+            "metadata": {"seed": 42, "split": "validation", "sample_limit": None,
+                         "total_queries": 10},
+            "aggregated_metrics": {"f1_score": {"mean": 0.5}},
+        }), encoding="utf-8")
         config.write_text(config.read_text(encoding="utf-8") + "# changed\n",
                           encoding="utf-8")
         return {"status": "success"}

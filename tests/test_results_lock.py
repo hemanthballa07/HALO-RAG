@@ -32,7 +32,9 @@ def artifact_payload(experiment, seed, value):
         "exp7_ablation_study": {"aggregated": {"full": metric}},
         "exp8_stress_test": {"baseline": {"f1_score": value}},
     }
-    return {**payloads[experiment], "metadata": {"seed": seed, "split": "validation"}}
+    return {**payloads[experiment], "metadata": {
+        "seed": seed, "split": "validation", "sample_limit": None, "total_queries": 10,
+    }}
 
 
 def complete_run(root):

@@ -322,9 +322,8 @@ def run_tau_sweep_stress_test(
                     retrieved_texts=retrieved_texts
                 )
                 all_metrics.append(metrics)
-            except Exception as e:
-                print(f"Error: {e}")
-                continue
+            except Exception as exc:
+                raise RuntimeError(f"τ-sweep failed at threshold {threshold}") from exc
         
         # Aggregate metrics
         if all_metrics:
@@ -417,9 +416,10 @@ def run_retrieval_degradation_test(
                     retrieved_texts=retrieved_texts
                 )
                 all_metrics.append(metrics)
-            except Exception as e:
-                print(f"Error: {e}")
-                continue
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Retrieval degradation failed at target recall {target_recall}"
+                ) from exc
         
         # Aggregate metrics
         if all_metrics:
@@ -503,9 +503,8 @@ def run_verifier_off_test(
                 retrieved_texts=retrieved_texts
             )
             all_metrics.append(metrics)
-        except Exception as e:
-            print(f"Error: {e}")
-            continue
+        except Exception as exc:
+            raise RuntimeError("Verifier-off evaluation failed") from exc
     
     # Aggregate metrics
     if all_metrics:
@@ -585,9 +584,8 @@ def run_baseline_test(
                 retrieved_texts=retrieved_texts
             )
             all_metrics.append(metrics)
-        except Exception as e:
-            print(f"Error: {e}")
-            continue
+        except Exception as exc:
+            raise RuntimeError("Stress-test baseline evaluation failed") from exc
     
     # Aggregate metrics
     if all_metrics:
@@ -757,6 +755,7 @@ def save_stress_test_results(
     retrieval_results: Dict[str, Any],
     baseline_results: Dict[str, Any],
     verifier_off_results: Dict[str, Any],
+    metadata: Dict[str, Any],
     output_dir: str = "results/metrics"
 ):
     """Save stress test results to CSV and JSON."""
@@ -820,6 +819,7 @@ def save_stress_test_results(
             "retrieval_degradation": retrieval_results,
             "baseline": baseline_results,
             "verifier_off": verifier_off_results,
+            "metadata": metadata,
             "timestamp": get_timestamp(),
             "commit_hash": get_commit_hash()
         }, f, indent=2)
@@ -946,7 +946,16 @@ def main():
         tau_results=tau_results,
         retrieval_results=retrieval_results,
         baseline_results=baseline_results,
-        verifier_off_results=verifier_off_results
+        verifier_off_results=verifier_off_results,
+        metadata={
+            "dataset": config["datasets"]["active"],
+            "split": args.split,
+            "sample_limit": args.limit,
+            "total_queries": (
+                min(len(queries), args.limit) if args.limit is not None else len(queries)
+            ),
+            "seed": args.seed,
+        },
     )
     
     # Generate plots
