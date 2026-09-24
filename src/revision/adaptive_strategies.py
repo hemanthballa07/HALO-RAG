@@ -67,7 +67,8 @@ class AdaptiveRevisionStrategy:
         verification_fn,
         claim_extractor_fn,
         iteration: int = 0,
-        top_k_retrieve: int = 20
+        top_k_retrieve: int = 20,
+        max_iterations: Optional[int] = None
     ) -> Tuple[str, Dict[str, Any], Dict[str, Any]]:
         """
         Apply adaptive revision strategies.
@@ -88,13 +89,17 @@ class AdaptiveRevisionStrategy:
             verification_fn: Function to verify claims (checks entailment against contexts)
             claim_extractor_fn: Function to extract claims from text
             iteration: Current iteration number
+            max_iterations: Per-request revision limit, if different from the configured limit
         
         Returns:
             Tuple of (revised_generation, new_verification_results, strategy_metadata)
             strategy_metadata contains: strategy_name, prompt_used, expanded_query (if applicable),
             verified_claims (if applicable), claim_queries (if applicable)
         """
-        if iteration >= self.max_iterations:
+        effective_max_iterations = self.max_iterations if max_iterations is None else max_iterations
+        if effective_max_iterations < 0:
+            raise ValueError("max_iterations cannot be negative")
+        if iteration >= effective_max_iterations:
             return initial_generation, verification_results, {"strategy_name": "none", "prompt_used": None}
         
         # Check if verification passed

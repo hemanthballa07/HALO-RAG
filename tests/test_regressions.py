@@ -415,6 +415,111 @@ class EntailmentVerifierTests(unittest.TestCase):
             verifier_module.EntailmentVerifier(device="cpu", threshold=1.1)
 
 
+class PipelineRevisionTests(unittest.TestCase):
+    @staticmethod
+    def pipeline():
+        retrieval = types.ModuleType("src.retrieval")
+        retrieval.HybridRetriever = object
+        retrieval.CrossEncoderReranker = object
+        generator = types.ModuleType("src.generator")
+        generator.FLANT5Generator = object
+        verification = types.ModuleType("src.verification")
+        verification.EntailmentVerifier = object
+        verification.ClaimExtractor = object
+        revision = types.ModuleType("src.revision")
+        revision.AdaptiveRevisionStrategy = object
+        evaluation = types.ModuleType("src.evaluation")
+        evaluation.EvaluationMetrics = object
+        device = types.ModuleType("src.utils.device")
+        device.resolve_device = lambda value: value
+        pipeline_module = load_module(
+            "halo_test_pipeline_revision",
+            "src/pipeline/rag_pipeline.py",
+            {
+                "src.retrieval": retrieval,
+                "src.generator": generator,
+                "src.verification": verification,
+                "src.revision": revision,
+                "src.evaluation": evaluation,
+                "src.utils.device": device,
+            },
+        )
+
+        pipeline = pipeline_module.SelfVerificationRAGPipeline.__new__(
+            pipeline_module.SelfVerificationRAGPipeline
+        )
+        pipeline.max_revision_iterations = 3
+        pipeline.enable_revision = True
+        pipeline.retriever = types.SimpleNamespace(retrieve=lambda query, top_k: [(1, "evidence")])
+        pipeline.reranker = types.SimpleNamespace(
+            rerank=lambda query, documents, top_k: [(0, documents[0], 0.9)]
+        )
+        pipeline.generator = types.SimpleNamespace(
+            generate=lambda query, context, **kwargs: "Unverified answer"
+        )
+        pipeline.claim_extractor = types.SimpleNamespace(
+            extract_claims=lambda text: [text]
+        )
+        pipeline.verifier = types.SimpleNamespace(
+            verify_generation=lambda *args, **kwargs: {"verified": False}
+        )
+        return pipeline
+
+    def test_zero_revision_limit_preserves_unverified_answer(self):
+        pipeline = self.pipeline()
+        pipeline.revision_strategy = types.SimpleNamespace(
+            revise=lambda **kwargs: self.fail("Revision should not run")
+        )
+
+        result = pipeline.generate("question", max_revision_iterations=0)
+
+        self.assertEqual(result["generated_text"], "Unverified answer")
+        self.assertEqual(result["revision_iterations"], 0)
+        self.assertFalse(result["verified"])
+        self.assertFalse(result["abstained"])
+
+    def test_request_revision_limit_reaches_strategy(self):
+        pipeline = self.pipeline()
+        pipeline.max_revision_iterations = 1
+        calls = []
+
+        def revise(**kwargs):
+            calls.append(kwargs)
+            return "Revised answer", {"verified": True}, {"strategy_name": "none"}
+
+        pipeline.revision_strategy = types.SimpleNamespace(revise=revise)
+
+        result = pipeline.generate("question", max_revision_iterations=2)
+
+        self.assertEqual(calls[0]["max_iterations"], 2)
+        self.assertEqual(result["revision_iterations"], 1)
+        self.assertTrue(result["verified"])
+
+
+class AdaptiveRevisionLimitTests(unittest.TestCase):
+    def test_request_limit_overrides_configured_limit(self):
+        module = load_module("halo_test_revision_limits", "src/revision/adaptive_strategies.py")
+        strategy = module.AdaptiveRevisionStrategy(
+            max_iterations=1, strategy_selection_mode="fixed", fixed_strategy="re_retrieval"
+        )
+        strategy._re_retrieval_strategy = lambda *args: ("revised", {"verified": True}, {})
+
+        result = strategy.revise(
+            query="question",
+            initial_generation="original",
+            verification_results={"verified": False},
+            retrieval_fn=lambda *args: [],
+            generation_fn=lambda *args: "revised",
+            verification_fn=lambda *args: {"verified": True},
+            claim_extractor_fn=lambda text: [text],
+            iteration=1,
+            max_iterations=2,
+        )
+
+        self.assertEqual(result[0], "revised")
+        self.assertEqual(strategy.max_iterations, 1)
+
+
 class ExperimentRunnerTests(unittest.TestCase):
     def test_json_result_metrics_are_flattened(self):
         yaml = types.ModuleType("yaml")

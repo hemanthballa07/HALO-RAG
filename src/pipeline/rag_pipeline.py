@@ -236,7 +236,7 @@ class SelfVerificationRAGPipeline:
         revision_iterations = 0
         revision_history = []  # Track revision history for transparency
         
-        if self.enable_revision and self.revision_strategy and not abstained:
+        if self.enable_revision and self.revision_strategy and max_revision_iterations > 0 and not abstained:
             if not verification_results.get("verified", False):
                 for iteration in range(max_revision_iterations):
                     # Store context before revision for comparison
@@ -265,7 +265,8 @@ class SelfVerificationRAGPipeline:
                         ),
                         claim_extractor_fn=lambda text: self.claim_extractor.extract_claims(text),
                         iteration=iteration,
-                        top_k_retrieve=top_k_retrieve  # Pass top_k_retrieve to revision strategy
+                        top_k_retrieve=top_k_retrieve,
+                        max_iterations=max_revision_iterations
                     )
                     
                     # Extract claims from revised generation
