@@ -24,9 +24,18 @@ python experiments/run_representative_benchmark.py \
   --questions 20 --corpus-size 500 --seed 42
 ```
 
-The JSON output includes individual cases and corpus fingerprints so the
-comparison can be audited. Small samples are useful for finding failures but
-should not be presented as validated system performance.
+The JSON output includes individual cases, source passages, final evidence,
+claim-level verification scores, and corpus fingerprints so failures can be
+audited. Small samples are useful for finding failures but should not be
+presented as validated system performance.
+
+Short-answer verification still has an answerability limitation. Its lexical
+shortcut can accept an answer that appears near question terms even when the
+passage describes a different subject or action. For example, a passage saying
+the British captured a fort does not support a question asking which fort they
+surrendered. Treat a high verified rate as factuality evidence, not proof that
+unanswerable questions are handled correctly; inspect the unanswerable false
+accept rate and saved evidence separately.
 
 Generate the multi-seed summary with:
 

@@ -20,7 +20,9 @@ import torch
 import yaml
 
 from src.data import load_dataset_from_config
-from src.evaluation.benchmark import build_benchmark, score_answer, summarize_results
+from src.evaluation.benchmark import (
+    build_benchmark, case_result_record, score_answer, summarize_results,
+)
 from src.pipeline import SelfVerificationRAGPipeline
 
 
@@ -77,27 +79,7 @@ def evaluate_cases(
             scores = score_answer(
                 result["generated_text"], case.references, result.get("abstained", False)
             )
-            rows[variant].append({
-                "example_id": case.example_id,
-                "question": case.question,
-                "references": list(case.references),
-                "answerable": case.answerable,
-                "relevant_doc_id": case.relevant_doc_id,
-                "initial_retrieved_doc_ids": result["initial_retrieved_docs"],
-                "initial_reranked_doc_ids": result["initial_reranked_docs"],
-                "retrieved_doc_ids": result["retrieved_docs"],
-                "reranked_doc_ids": result["reranked_docs"],
-                "retrieval_hit": float(case.relevant_doc_id in result["initial_retrieved_docs"]),
-                "evidence_hit": float(case.relevant_doc_id in result["initial_reranked_docs"]),
-                "final_evidence_hit": float(case.relevant_doc_id in result["reranked_docs"]),
-                "generated": result["generated_text"],
-                "exact_match": scores["exact_match"],
-                "f1": scores["f1"],
-                "verified": bool(result.get("verified", False)),
-                "abstained": bool(result.get("abstained", False)),
-                "revision_iterations": result.get("revision_iterations", 0),
-                "latency_seconds": round(elapsed, 3),
-            })
+            rows[variant].append(case_result_record(case, result, scores, elapsed))
         print(f"Completed {index + 1}/{len(benchmark.cases)} questions", flush=True)
     return rows
 

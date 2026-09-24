@@ -5,7 +5,9 @@ import json
 import pytest
 
 from experiments.summarize_paired_benchmarks import combine_runs
-from src.evaluation.benchmark import build_benchmark, score_answer, summarize_results
+from src.evaluation.benchmark import (
+    BenchmarkCase, build_benchmark, case_result_record, score_answer, summarize_results,
+)
 from src.evaluation.metrics import EvaluationMetrics
 
 
@@ -57,6 +59,31 @@ def test_answer_scoring_uses_all_references_and_handles_no_answer():
     assert score_answer("France", [], abstained=True) == {"exact_match": 1.0, "f1": 1.0}
     assert score_answer("France", []) == {"exact_match": 0.0, "f1": 0.0}
     assert EvaluationMetrics().f1_score("", "") == 1.0
+
+
+def test_case_record_keeps_evidence_and_claim_scores_for_audit():
+    case = BenchmarkCase(
+        example_id="sample", question="Which fort?", context="The source passage.",
+        references=(), relevant_doc_id=7, answerable=False,
+    )
+    result = {
+        "initial_retrieved_docs": [7], "initial_reranked_docs": [7],
+        "retrieved_docs": [7], "reranked_docs": [7],
+        "reranked_texts": ["The British captured Fort Beauséjour."],
+        "generated_text": "Fort Beauséjour", "claims": ["Fort Beauséjour"],
+        "verification_results": {"verification_results": [{"claim": "Fort Beauséjour",
+                                                       "entailment_score": 1.0}]},
+        "verified": True, "abstained": False, "revision_iterations": 0,
+    }
+
+    record = case_result_record(case, result, {"exact_match": 0.0, "f1": 0.0}, 1.2345)
+
+    assert record["source_context"] == "The source passage."
+    assert record["final_evidence_texts"] == ["The British captured Fort Beauséjour."]
+    assert record["claims"] == ["Fort Beauséjour"]
+    assert record["claim_verification"][0]["entailment_score"] == 1.0
+    assert record["final_evidence_hit"] == 1.0
+    assert record["latency_seconds"] == 1.234
 
 
 def test_summary_reports_answerable_and_unanswerable_separately():

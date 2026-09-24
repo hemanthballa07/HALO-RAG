@@ -30,6 +30,41 @@ class BenchmarkSet:
     seed: int
 
 
+def case_result_record(
+    case: BenchmarkCase,
+    result: dict[str, Any],
+    scores: dict[str, float],
+    elapsed_seconds: float,
+) -> dict[str, Any]:
+    """Keep the evidence and claim scores needed to audit a benchmark answer."""
+    verification = result["verification_results"]
+    return {
+        "example_id": case.example_id,
+        "question": case.question,
+        "references": list(case.references),
+        "answerable": case.answerable,
+        "source_context": case.context,
+        "relevant_doc_id": case.relevant_doc_id,
+        "initial_retrieved_doc_ids": result["initial_retrieved_docs"],
+        "initial_reranked_doc_ids": result["initial_reranked_docs"],
+        "retrieved_doc_ids": result["retrieved_docs"],
+        "reranked_doc_ids": result["reranked_docs"],
+        "final_evidence_texts": list(result["reranked_texts"]),
+        "retrieval_hit": float(case.relevant_doc_id in result["initial_retrieved_docs"]),
+        "evidence_hit": float(case.relevant_doc_id in result["initial_reranked_docs"]),
+        "final_evidence_hit": float(case.relevant_doc_id in result["reranked_docs"]),
+        "generated": result["generated_text"],
+        "claims": list(result["claims"]),
+        "claim_verification": list(verification["verification_results"]),
+        "exact_match": scores["exact_match"],
+        "f1": scores["f1"],
+        "verified": bool(result.get("verified", False)),
+        "abstained": bool(result.get("abstained", False)),
+        "revision_iterations": result.get("revision_iterations", 0),
+        "latency_seconds": round(elapsed_seconds, 3),
+    }
+
+
 def build_benchmark(
     examples: Sequence[dict[str, Any]],
     question_count: int,
