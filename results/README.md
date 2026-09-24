@@ -6,6 +6,9 @@ Experiment scripts write scalar metrics to `results/metrics/`, figures to
 Tracked metric artifacts were removed after corrections to dataset parsing, retrieval
 score normalization, and NLI label mapping. Those changes affect reported factuality and
 retrieval values, so previous outputs are not comparable to current runs.
+Claim extraction now verifies each declarative sentence separately, drops questions,
+and deduplicates repeated claims. Any results generated before this change also need
+to be rerun before comparison with current verification metrics.
 
 Generate a fresh smoke result with:
 

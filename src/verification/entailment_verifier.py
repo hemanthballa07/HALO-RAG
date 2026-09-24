@@ -394,10 +394,6 @@ class EntailmentVerifier:
         Returns:
             Dictionary with verification results
         """
-        # Handle empty claims: if no claims extracted, treat entire text as one claim
-        if not claims:
-            claims = [generated_text.strip()] if generated_text.strip() else []
-        
         # Combine contexts for verification
         combined_context = " ".join(retrieved_contexts[:3]) if retrieved_contexts else ""  # Use top 3 contexts
         

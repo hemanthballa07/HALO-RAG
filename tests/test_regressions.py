@@ -42,6 +42,51 @@ def load_module(name: str, relative_path: str, stubs: dict[str, types.ModuleType
                 sys.modules[module_name] = original
 
 
+class ClaimExtractorTests(unittest.TestCase):
+    @staticmethod
+    def extractor(sentences, structured=None):
+        spacy = types.ModuleType("spacy")
+        module = load_module(
+            "halo_test_claim_extractor",
+            "src/verification/claim_extractor.py",
+            {"spacy": spacy},
+        )
+        extractor = module.ClaimExtractor.__new__(module.ClaimExtractor)
+        extractor.nlp = lambda text: types.SimpleNamespace(
+            sents=[types.SimpleNamespace(text=sentence) for sentence in sentences]
+        )
+        extractor._extract_svo_from_sentence = lambda sent: [
+            {"claim": claim} for claim in (structured or {}).get(sent.text, [])
+        ]
+        return extractor
+
+    def test_preserves_fallback_for_each_sentence(self):
+        extractor = self.extractor(
+            ["Paris is in France.", "Ada wrote a book."],
+            {"Ada wrote a book.": ["Ada wrote book"]},
+        )
+
+        self.assertEqual(
+            extractor.extract_claims("Paris is in France. Ada wrote a book."),
+            ["Paris is in France.", "Ada wrote book"],
+        )
+
+    def test_ignores_questions_and_repeated_claims(self):
+        extractor = self.extractor(
+            ["Paris is in France.", "Where is Paris?", "Paris is in France."]
+        )
+
+        self.assertEqual(
+            extractor.extract_claims("Paris is in France. Where is Paris? Paris is in France."),
+            ["Paris is in France."],
+        )
+
+    def test_keeps_short_answer_without_svo(self):
+        extractor = self.extractor(["late 1990s"])
+
+        self.assertEqual(extractor.extract_claims("late 1990s"), ["late 1990s"])
+
+
 class DataLoaderTests(unittest.TestCase):
     @staticmethod
     def loaders_module():
@@ -353,6 +398,16 @@ class EntailmentVerifierTests(unittest.TestCase):
 
         self.assertEqual(len(calls), 1)
         self.assertTrue(result["verified"])
+
+    def test_generation_without_claims_is_not_verified(self):
+        verifier_module = self.verifier_module()
+        verifier = verifier_module.EntailmentVerifier.__new__(verifier_module.EntailmentVerifier)
+        verifier.verify_claim = lambda *args, **kwargs: self.fail("No claim should be verified")
+
+        result = verifier.verify_generation("What is the population?", ["context"], [])
+
+        self.assertEqual(result["num_total"], 0)
+        self.assertFalse(result["verified"])
 
     def test_invalid_entailment_threshold_is_rejected(self):
         verifier_module = self.verifier_module()
