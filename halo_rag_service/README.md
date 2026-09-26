@@ -42,6 +42,20 @@ The response includes the answer, evidence passages, a verification summary, and
 one of `verified`, `unverified`, or `abstained`. No public authentication, rate
 limiting, or multi-user isolation is included, so bind to localhost only.
 
+For single-passage questions, an optional no-answer mode limits generation to
+the top passage and asks the model to abstain when that passage does not answer:
+
+```json
+{"query": "Where is Paris?", "evidence_limit": 1, "abstain_if_unanswered": true}
+```
+
+This can reduce unsupported answers, but it is not a guarantee. A `verified`
+response means the current claim checker accepted the answer, not that the
+question was answerable from the evidence. The checker can mistake nearby words
+for support when a passage describes a different subject or action. Inspect the
+returned source text before relying on an answer. Single-passage mode may also
+omit evidence needed for multi-hop questions, so it is opt-in.
+
 Install `requirements-dev.txt` to run the HTTP tests with
 `python -m pytest -q tests/test_service.py`. They use a
 fake pipeline and do not download models. This API adapter does not affect the
