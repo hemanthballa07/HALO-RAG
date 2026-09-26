@@ -21,7 +21,8 @@ import yaml
 
 from src.data import load_dataset_from_config
 from src.evaluation.benchmark import (
-    build_benchmark, case_result_record, score_answer, summarize_results,
+    build_benchmark, case_result_record, score_answer, source_fingerprint,
+    summarize_results,
 )
 from src.pipeline import SelfVerificationRAGPipeline
 
@@ -94,6 +95,7 @@ def main() -> int:
     config_path = Path(args.config)
     config_bytes = config_path.read_bytes()
     config = yaml.safe_load(config_bytes)
+    source_sha256 = source_fingerprint(PROJECT_ROOT)
     if config["datasets"]["active"] != "squad_v2":
         raise ValueError("this benchmark currently supports only SQuAD v2")
 
@@ -129,6 +131,8 @@ def main() -> int:
         include_focused=args.include_focused,
     )
     summaries = {variant: summarize_results(values) for variant, values in rows.items()}
+    if source_fingerprint(PROJECT_ROOT) != source_sha256:
+        raise RuntimeError("benchmark source changed during the run")
     comparison = {
         "exact_match_delta": (
             summaries["revision"]["overall"]["exact_match"]
@@ -168,6 +172,7 @@ def main() -> int:
             "max_revisions": args.max_revisions,
             "variants": list(rows),
             "config_sha256": hashlib.sha256(config_bytes).hexdigest(),
+            "source_sha256": source_sha256,
             "document_sha256": list(benchmark.document_hashes),
             "question_ids": [case.example_id for case in benchmark.cases],
             "models": {

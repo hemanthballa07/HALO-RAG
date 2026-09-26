@@ -8,6 +8,7 @@ import re
 import string
 from collections import Counter
 from dataclasses import dataclass
+from pathlib import Path
 from statistics import fmean
 from typing import Any, Sequence
 
@@ -28,6 +29,22 @@ class BenchmarkSet:
     document_hashes: tuple[str, ...]
     cases: tuple[BenchmarkCase, ...]
     seed: int
+
+
+def source_fingerprint(project_root: Path) -> str:
+    """Hash the benchmark runner and project source used to produce a run."""
+    source_files = sorted((project_root / "src").rglob("*.py"))
+    runner = project_root / "experiments" / "run_representative_benchmark.py"
+    if not source_files or not runner.is_file():
+        raise FileNotFoundError("benchmark source tree is incomplete")
+
+    digest = hashlib.sha256()
+    for path in [*source_files, runner]:
+        digest.update(path.relative_to(project_root).as_posix().encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
 
 
 def case_result_record(

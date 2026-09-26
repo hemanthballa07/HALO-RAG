@@ -6,7 +6,8 @@ import pytest
 
 from experiments.summarize_paired_benchmarks import combine_runs
 from src.evaluation.benchmark import (
-    BenchmarkCase, build_benchmark, case_result_record, score_answer, summarize_results,
+    BenchmarkCase, build_benchmark, case_result_record, score_answer, source_fingerprint,
+    summarize_results,
 )
 from src.evaluation.metrics import EvaluationMetrics
 
@@ -86,6 +87,25 @@ def test_case_record_keeps_evidence_and_claim_scores_for_audit():
     assert record["latency_seconds"] == 1.234
 
 
+def test_source_fingerprint_changes_with_benchmark_code(tmp_path):
+    source_dir = tmp_path / "src"
+    source_dir.mkdir()
+    experiment_dir = tmp_path / "experiments"
+    experiment_dir.mkdir()
+    source_file = source_dir / "pipeline.py"
+    source_file.write_text("answer = 1\n", encoding="utf-8")
+    runner = experiment_dir / "run_representative_benchmark.py"
+    runner.write_text("run()\n", encoding="utf-8")
+
+    first = source_fingerprint(tmp_path)
+    source_file.write_text("answer = 2\n", encoding="utf-8")
+
+    assert source_fingerprint(tmp_path) != first
+    second = source_fingerprint(tmp_path)
+    runner.write_text("run(strict=True)\n", encoding="utf-8")
+    assert source_fingerprint(tmp_path) != second
+
+
 def test_summary_reports_answerable_and_unanswerable_separately():
     rows = [
         {"answerable": True, "exact_match": 1.0, "f1": 1.0, "retrieval_hit": 1.0,
@@ -160,7 +180,8 @@ def test_combined_benchmarks_keep_splits_pairs_and_latency(tmp_path):
             "metadata": {
                 "dataset": "squad_v2", "split": "validation", "corpus_size": 100,
                 "top_k_retrieve": 20, "top_k_rerank": 5, "max_revisions": 1,
-                "config_sha256": "config", "models": {"generator": "test"},
+                "config_sha256": "config", "source_sha256": "source",
+                "models": {"generator": "test"},
                 "package_versions": {"torch": "test"},
                 "seed": seed, "question_count": 2,
                 "question_ids": [answer_id, no_answer_id],
@@ -186,7 +207,7 @@ def test_combined_benchmarks_reject_protocol_changes(tmp_path):
         "metadata": {
             "dataset": "squad_v2", "split": "validation", "corpus_size": 100,
             "top_k_retrieve": 20, "top_k_rerank": 5, "max_revisions": 1,
-            "config_sha256": "config", "models": {},
+            "config_sha256": "config", "source_sha256": "source", "models": {},
             "package_versions": {"torch": "test"}, "seed": 1,
             "question_count": 1, "question_ids": ["one"],
         },
@@ -203,3 +224,30 @@ def test_combined_benchmarks_reject_protocol_changes(tmp_path):
 
     with pytest.raises(ValueError, match="incompatible benchmark protocol"):
         combine_runs([first_path, second_path])
+
+
+def test_combined_benchmarks_reject_code_changes(tmp_path):
+    payload = {
+        "metadata": {
+            "dataset": "squad_v2", "split": "validation", "corpus_size": 100,
+            "top_k_retrieve": 20, "top_k_rerank": 5, "max_revisions": 1,
+            "config_sha256": "config", "source_sha256": "first", "models": {},
+            "package_versions": {}, "seed": 1, "question_count": 0,
+            "question_ids": [],
+        },
+        "cases": {"baseline": []}, "summary": {},
+    }
+    first_path = tmp_path / "first.json"
+    second_path = tmp_path / "second.json"
+    first_path.write_text(json.dumps(payload), encoding="utf-8")
+    payload["metadata"]["seed"] = 2
+    payload["metadata"]["source_sha256"] = "second"
+    second_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="incompatible benchmark protocol"):
+        combine_runs([first_path, second_path])
+
+    payload["metadata"].pop("source_sha256")
+    second_path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="metadata missing source_sha256"):
+        combine_runs([second_path])

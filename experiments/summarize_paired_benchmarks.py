@@ -13,7 +13,7 @@ from statistics import fmean, median
 
 PROTOCOL_FIELDS = (
     "dataset", "split", "corpus_size", "top_k_retrieve", "top_k_rerank",
-    "max_revisions", "config_sha256", "models", "package_versions",
+    "max_revisions", "config_sha256", "source_sha256", "models", "package_versions",
 )
 
 
@@ -57,6 +57,9 @@ def combine_runs(paths: list[Path]) -> dict:
         source_bytes = path.read_bytes()
         payload = json.loads(source_bytes)
         metadata = payload["metadata"]
+        missing = [field for field in PROTOCOL_FIELDS if field not in metadata]
+        if missing:
+            raise ValueError(f"benchmark metadata missing {', '.join(missing)} in {path}; rerun it")
         current_protocol = {field: metadata[field] for field in PROTOCOL_FIELDS}
         current_variants = list(payload["cases"])
         if protocol is None:

@@ -28,6 +28,10 @@ The JSON output includes individual cases, source passages, final evidence,
 claim-level verification scores, and corpus fingerprints so failures can be
 audited. Small samples are useful for finding failures but should not be
 presented as validated system performance.
+Each run also records a fingerprint of the benchmark runner and `src/` code.
+The paired summary refuses to combine runs with missing or different source
+fingerprints. Regenerate older benchmark files before combining them with new
+runs, even when their configuration and model names match.
 
 Short-answer verification still has an answerability limitation. Its lexical
 shortcut can accept an answer that appears near question terms even when the
