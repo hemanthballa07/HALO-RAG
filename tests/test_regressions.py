@@ -86,6 +86,32 @@ class ClaimExtractorTests(unittest.TestCase):
 
         self.assertEqual(extractor.extract_claims("late 1990s"), ["late 1990s"])
 
+    def test_svo_claim_keeps_auxiliary_and_negation(self):
+        extractor = self.extractor([])
+        extractor._extract_svo_from_sentence = types.MethodType(
+            type(extractor)._extract_svo_from_sentence, extractor
+        )
+
+        def token(text, index, dependency, children=(), part_of_speech=""):
+            return types.SimpleNamespace(
+                text=text, i=index, dep_=dependency, pos_=part_of_speech,
+                children=children,
+            )
+
+        subject = token("Alice", 0, "nsubj")
+        auxiliary = token("did", 1, "aux")
+        negation = token("not", 2, "neg")
+        determiner = token("the", 4, "det")
+        obj = token("report", 5, "dobj", (determiner,))
+        root = token("write", 3, "ROOT", (subject, auxiliary, negation, obj), "VERB")
+
+        self.assertEqual(extractor._extract_svo_from_sentence([root]), [{
+            "subject": "Alice",
+            "verb": "did not write",
+            "object": "the report",
+            "claim": "Alice did not write the report",
+        }])
+
 
 class DataLoaderTests(unittest.TestCase):
     @staticmethod

@@ -47,18 +47,22 @@ class ClaimExtractor:
 
             subject = None
             obj = None
+            verb_tokens = [token]
             for child in token.children:
                 if child.dep_ in ["nsubj", "nsubjpass"] and subject is None:
                     subject = self._get_phrase(child)
                 elif child.dep_ in ["dobj", "pobj", "attr"] and obj is None:
                     obj = self._get_phrase(child)
+                elif child.dep_ in ["aux", "auxpass", "neg"]:
+                    verb_tokens.append(child)
 
             if subject and obj:
+                verb = " ".join(part.text for part in sorted(verb_tokens, key=lambda part: part.i))
                 triples.append({
                     "subject": subject,
-                    "verb": token.text,
+                    "verb": verb,
                     "object": obj,
-                    "claim": f"{subject} {token.text} {obj}"
+                    "claim": f"{subject} {verb} {obj}"
                 })
 
         return triples

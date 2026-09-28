@@ -10,6 +10,9 @@ Claim extraction now verifies each declarative sentence separately, drops questi
 and deduplicates repeated claims. Any results generated before this change also need
 to be rerun before comparison with current verification metrics.
 
+SVO claims now retain auxiliary verbs and negation, which also changes verification
+inputs. Regenerate historical verification metrics before comparing them with new runs.
+
 Generate a fresh smoke result with:
 
 ```bash
