@@ -35,6 +35,10 @@ Each run also records a fingerprint of the benchmark runner and `src/` code.
 The paired summary refuses to combine runs with missing or different source
 fingerprints. Regenerate older benchmark files before combining them with new
 runs, even when their configuration and model names match.
+It also counts how many claims each verification method scored and accepted.
+For unanswerable cases, `false_accept_claim_method_counts` attributes accepted
+claims in falsely verified answers to their scoring method. These are claim
+counts, not independent question counts.
 
 Short-answer verification still has an answerability limitation. Its lexical
 shortcut can accept an answer that appears near question terms even when the

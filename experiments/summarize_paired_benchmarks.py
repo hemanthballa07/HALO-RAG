@@ -31,6 +31,16 @@ def _summarize_rows(rows: list[dict]) -> dict:
     latencies = [float(row["latency_seconds"]) for row in rows]
     result["latency_p50_seconds"] = median(latencies)
     result["latency_p95_seconds"] = _percentile_nearest_rank(latencies, 0.95)
+    claims = [
+        claim for row in rows for claim in row.get("claim_verification", [])
+    ]
+    result["claim_method_counts"] = dict(sorted(Counter(
+        claim.get("verification_method") or "unknown" for claim in claims
+    ).items()))
+    result["accepted_claim_method_counts"] = dict(sorted(Counter(
+        claim.get("verification_method") or "unknown"
+        for claim in claims if claim.get("is_entailed", False)
+    ).items()))
     if all(not row["answerable"] for row in rows):
         result["false_accept_rate"] = fmean(
             float(row["verified"] and not row["abstained"]) for row in rows
@@ -39,6 +49,12 @@ def _summarize_rows(rows: list[dict]) -> dict:
             float(not row["abstained"] and bool(row["generated"].strip()))
             for row in rows
         )
+        result["false_accept_claim_method_counts"] = dict(sorted(Counter(
+            claim.get("verification_method") or "unknown"
+            for row in rows if row["verified"] and not row["abstained"]
+            for claim in row.get("claim_verification", [])
+            if claim.get("is_entailed", False)
+        ).items()))
     return result
 
 

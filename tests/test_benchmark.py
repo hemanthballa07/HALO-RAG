@@ -180,6 +180,14 @@ def test_combined_benchmarks_keep_splits_pairs_and_latency(tmp_path):
                 make_row(no_answer_id, False, seed == 1, False, seed == 1, 1.5),
             ],
         }
+        for variant_rows in rows.values():
+            for row in variant_rows:
+                row["claim_verification"] = [{
+                    "is_entailed": row["verified"],
+                    "verification_method": (
+                        "nli" if row["answerable"] else "question_sentence_match"
+                    ),
+                }]
         payload = {
             "metadata": {
                 "dataset": "squad_v2", "split": "validation", "corpus_size": 100,
@@ -202,6 +210,13 @@ def test_combined_benchmarks_keep_splits_pairs_and_latency(tmp_path):
     assert result["summary"]["focused"]["overall"]["exact_match"] == 0.75
     assert result["summary"]["focused"]["unanswerable"]["false_accept_rate"] == 0.0
     assert result["summary"]["focused"]["overall"]["latency_p95_seconds"] == 1.5
+    assert result["summary"]["baseline"]["overall"]["accepted_claim_method_counts"] == {
+        "nli": 2, "question_sentence_match": 2,
+    }
+    assert result["summary"]["baseline"]["unanswerable"]["false_accept_claim_method_counts"] == {
+        "question_sentence_match": 2,
+    }
+    assert result["summary"]["focused"]["unanswerable"]["false_accept_claim_method_counts"] == {}
     assert result["paired_vs_baseline"]["focused"]["improved"] == 1
     assert result["duplicate_question_ids_across_runs"] == []
 
