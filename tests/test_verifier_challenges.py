@@ -58,6 +58,21 @@ def test_formula_anchor_allows_spacing_before_subscript():
     )
 
 
+def test_shortcut_requires_named_location_in_evidence():
+    context = "Schools in Malaysia became National Type after independence."
+
+    assert not EntailmentVerifier._answer_sentence_matches_query(
+        "National Type",
+        context,
+        "What type did schools in China become after independence?",
+    )
+    assert EntailmentVerifier._answer_sentence_matches_query(
+        "National Type",
+        context,
+        "What type did schools in Malaysia become after independence?",
+    )
+
+
 def test_evaluator_counts_false_accepts_by_scoring_method():
     class FakeVerifier:
         threshold = 0.75

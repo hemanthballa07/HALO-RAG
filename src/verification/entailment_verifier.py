@@ -126,6 +126,12 @@ class EntailmentVerifier:
         query_words = re.findall(r"\w+", query)
         context_words = cls._normalized_words(context)
 
+        for location in re.findall(
+            r"\bin\s+([A-Z][\w]*(?:\s+[A-Z][\w]*)*)", query
+        ):
+            if cls._find_words(context_words, cls._normalized_words(location)) < 0:
+                return False
+
         for index, word in enumerate(query_words):
             if not word.isupper() or index == 0:
                 continue
