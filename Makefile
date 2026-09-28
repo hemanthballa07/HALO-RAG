@@ -20,4 +20,4 @@ setup-check:
 
 test:
 	$(PYTHON) -m unittest tests.test_regressions -v
-	$(PYTHON) -m pytest -q tests/test_basic_functionality.py tests/test_benchmark.py tests/test_review_scoring.py tests/test_human_eval_agreement.py tests/test_final_result_reader.py tests/test_results_lock.py tests/test_cli_limits.py tests/test_service.py
+	$(PYTHON) -m pytest -q tests/test_basic_functionality.py tests/test_benchmark.py tests/test_review_scoring.py tests/test_human_eval_agreement.py tests/test_final_result_reader.py tests/test_results_lock.py tests/test_cli_limits.py tests/test_service.py tests/test_verifier_challenges.py

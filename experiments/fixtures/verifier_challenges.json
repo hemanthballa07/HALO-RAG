@@ -1,0 +1,72 @@
+[
+  {
+    "id": "support_direction_supported",
+    "context": "The IPCC supports the UNFCCC process.",
+    "question": "Which organization supports the UNFCCC process?",
+    "answer": "The IPCC",
+    "supported": true
+  },
+  {
+    "id": "support_direction_reversed",
+    "context": "The IPCC supports the UNFCCC process.",
+    "question": "Which organization does the UNFCCC process support?",
+    "answer": "The IPCC",
+    "supported": false
+  },
+  {
+    "id": "capture_action_supported",
+    "context": "In 1755, the British captured Fort Beauséjour.",
+    "question": "What fort did the British capture in 1755?",
+    "answer": "Fort Beauséjour",
+    "supported": true
+  },
+  {
+    "id": "capture_action_changed",
+    "context": "In 1755, the British captured Fort Beauséjour.",
+    "question": "What fort did the British surrender in 1755?",
+    "answer": "Fort Beauséjour",
+    "supported": false
+  },
+  {
+    "id": "castle_name_supported",
+    "context": "The Royal Ujazdów Castle houses the Centre for Contemporary Art.",
+    "question": "What castle houses the Centre for Contemporary Art?",
+    "answer": "Royal Ujazdów Castle",
+    "supported": true
+  },
+  {
+    "id": "castle_name_changed",
+    "context": "The Royal Ujazdów Castle houses the Centre for Contemporary Art.",
+    "question": "What castle houses the Centre for Ujazdow Art?",
+    "answer": "Royal Ujazdów Castle",
+    "supported": false
+  },
+  {
+    "id": "network_name_supported",
+    "context": "NSFNET began in 1985 to promote advanced research and education networking.",
+    "question": "What did NSFNET begin in 1985 to promote?",
+    "answer": "advanced research and education networking",
+    "supported": true
+  },
+  {
+    "id": "network_name_changed",
+    "context": "NSFNET began in 1985 to promote advanced research and education networking.",
+    "question": "What did NSF begin in 1985 to promote?",
+    "answer": "advanced research and education networking",
+    "supported": false
+  },
+  {
+    "id": "formula_supported",
+    "context": "The O2 molecule ground state is called triplet oxygen.",
+    "question": "What is the O2 molecule ground state called?",
+    "answer": "triplet oxygen",
+    "supported": true
+  },
+  {
+    "id": "formula_changed",
+    "context": "The O2 molecule ground state is called triplet oxygen.",
+    "question": "What is the O molecule ground state called?",
+    "answer": "triplet oxygen",
+    "supported": false
+  }
+]

@@ -2,6 +2,23 @@
 
 This directory contains experiment scripts for the HALO-RAG project.
 
+## Verifier challenge set
+
+`evaluate_verifier_challenges.py` runs ten paired, labeled examples from
+`fixtures/verifier_challenges.json`. Each pair holds the answer and passage
+fixed while changing a relation, action, entity name, or formula in the
+question. The report counts false accepts and identifies the scoring method.
+
+```bash
+python experiments/evaluate_verifier_challenges.py \
+  --output results/metrics/verifier_challenges.json
+```
+
+The command reports results without failing by default. Use
+`--max-false-accepts 0` to make it fail when any unsupported answer passes.
+This is a targeted regression challenge, not an estimate of real-world
+accuracy. It loads the NLI model and may need an available model cache.
+
 ## Paired question-answering benchmark
 
 `run_representative_benchmark.py` compares revision disabled and enabled on the
