@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from experiments.evaluate_verifier_challenges import evaluate_cases, load_challenges
+from src.verification.entailment_verifier import EntailmentVerifier
 
 
 FIXTURE = Path(__file__).resolve().parents[1] / "experiments/fixtures/verifier_challenges.json"
@@ -16,6 +17,45 @@ def test_challenge_fixture_has_paired_supported_and_unsupported_cases():
     assert len(cases) == 10
     assert sum(case["supported"] for case in cases) == 5
     assert len({case["id"] for case in cases}) == len(cases)
+
+
+@pytest.mark.parametrize("case", load_challenges(FIXTURE), ids=lambda case: case["id"])
+def test_shortcut_respects_question_constraints(case):
+    assert EntailmentVerifier._answer_sentence_matches_query(
+        case["answer"], case["context"], case["question"]
+    ) is case["supported"]
+
+
+def test_action_guard_does_not_treat_a_following_noun_as_the_action():
+    assert EntailmentVerifier._answer_sentence_matches_query(
+        "West High School",
+        "She attended West High School while pursuing an undergraduate degree.",
+        "What school did she attend for college?",
+    )
+
+
+def test_shorter_object_question_keeps_relation_direction():
+    assert not EntailmentVerifier._answer_sentence_matches_query(
+        "The IPCC",
+        "The IPCC supports UNFCCC.",
+        "Which organization does UNFCCC support?",
+    )
+
+
+def test_object_question_accepts_matching_relation():
+    assert EntailmentVerifier._answer_sentence_matches_query(
+        "UNFCCC",
+        "The IPCC supports UNFCCC.",
+        "Which organization does the IPCC support?",
+    )
+
+
+def test_formula_anchor_allows_spacing_before_subscript():
+    assert EntailmentVerifier._answer_sentence_matches_query(
+        "triplet oxygen",
+        "The O 2 molecule ground state is called triplet oxygen.",
+        "What is the O2 molecule ground state called?",
+    )
 
 
 def test_evaluator_counts_false_accepts_by_scoring_method():

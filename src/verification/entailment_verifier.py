@@ -8,6 +8,9 @@ from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from typing import Any, List, Dict, Tuple, Optional
 import numpy as np
 import re
+import unicodedata
+
+from nltk.stem import PorterStemmer
 
 from src.utils.device import resolve_device
 
@@ -97,6 +100,108 @@ class EntailmentVerifier:
             terms.add(word)
         return terms
 
+    @staticmethod
+    def _normalized_words(text: str) -> list[str]:
+        unaccented = "".join(
+            character for character in unicodedata.normalize("NFKD", text.casefold())
+            if not unicodedata.combining(character)
+        )
+        return re.findall(r"\w+", unaccented)
+
+    @staticmethod
+    def _find_words(words: list[str], target: list[str]) -> int:
+        if not target:
+            return -1
+        return next(
+            (index for index in range(len(words) - len(target) + 1)
+             if words[index:index + len(target)] == target),
+            -1,
+        )
+
+    @classmethod
+    def _question_constraints_match(
+        cls, query: str, sentence: str, context: str, answer_tokens: list[str]
+    ) -> bool:
+        """Keep text overlap from overriding explicit question constraints."""
+        query_words = re.findall(r"\w+", query)
+        context_words = cls._normalized_words(context)
+
+        for index, word in enumerate(query_words):
+            if not word.isupper() or index == 0:
+                continue
+            if word.isalpha() and len(word) == 1 and index + 1 < len(query_words):
+                if query_words[index + 1].casefold() == "molecule":
+                    anchor = cls._normalized_words(f"{word} molecule")
+                    if cls._find_words(context_words, anchor) < 0:
+                        return False
+                    continue
+            anchor = cls._normalized_words(word)
+            if cls._find_words(context_words, anchor) < 0:
+                if not (re.fullmatch(r"[A-Z]\d+", word)
+                        and re.search(
+                            rf"\b{re.escape(word[0])}\s+{re.escape(word[1:])}\b",
+                            context,
+                            re.I,
+                        )):
+                    return False
+
+        for index in range(1, len(query_words) - 1):
+            if query_words[index].casefold() not in {"for", "of", "the"}:
+                continue
+            if not (query_words[index - 1][0].isupper()
+                    and query_words[index + 1][0].isupper()):
+                continue
+            left, right = index - 1, index + 2
+            while left > 0 and query_words[left - 1][0].isupper():
+                left -= 1
+            while right < len(query_words) and query_words[right][0].isupper():
+                right += 1
+            if cls._find_words(context_words, cls._normalized_words(
+                " ".join(query_words[left:right])
+            )) < 0:
+                return False
+
+        stemmer = PorterStemmer()
+        sentence_words = cls._normalized_words(sentence)
+        question_words = cls._normalized_words(query)
+        if (len(question_words) >= 6 and question_words[0] == "what"
+                and question_words[2] == "did"):
+            tail = question_words[3:]
+            has_year = (len(tail) >= 3 and tail[-2] in {"in", "on", "at"}
+                        and len(tail[-1]) == 4 and tail[-1].isdigit())
+            if has_year:
+                tail = tail[:-2]
+            # The final word is an action only in this simple dated form.
+            if (has_year and len(tail) >= 2
+                    and not set(tail) & {"for", "of", "with", "by", "from", "to"}):
+                action = stemmer.stem(tail[-1])
+                if action not in {stemmer.stem(word) for word in sentence_words}:
+                    return False
+
+        if (len(question_words) >= 5 and question_words[0] in {"which", "what"}
+                and question_words[2] in {"do", "does", "did"}):
+            subject_acronyms = [
+                cls._normalized_words(word)[0]
+                for word in query_words[3:-1]
+                if word.isupper() and len(word) > 1
+            ]
+            if subject_acronyms:
+                answer_index = cls._find_words(sentence_words, cls._normalized_words(
+                    " ".join(answer_tokens)
+                ))
+                subject_index = cls._find_words(sentence_words, subject_acronyms[:1])
+                action = stemmer.stem(question_words[-1])
+                action_indices = [
+                    index for index, word in enumerate(sentence_words)
+                    if stemmer.stem(word) == action
+                ]
+                if (answer_index >= 0 and subject_index >= 0
+                        and any(answer_index < index < subject_index
+                                and "by" not in sentence_words[index:subject_index]
+                                for index in action_indices)):
+                    return False
+        return True
+
     @classmethod
     def _answer_sentence_matches_query(cls, claim: str, context: str, query: str) -> bool:
         """Allow a lexical shortcut only when the answer and question share a sentence."""
@@ -126,7 +231,8 @@ class EntailmentVerifier:
                 for index in range(len(sentence_tokens) - width + 1)
             ):
                 continue
-            if len(question_terms & cls._content_terms(sentence)) >= min(2, len(question_terms)):
+            if (len(question_terms & cls._content_terms(sentence)) >= min(2, len(question_terms))
+                    and cls._question_constraints_match(query, sentence, context, answer_tokens)):
                 return True
         return False
     
