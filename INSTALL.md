@@ -40,6 +40,11 @@ python -m pip install -r requirements-dev.txt
 make check
 ```
 
+`make check` is the lightweight CI gate. Once the full project dependencies and
+spaCy model are installed, use `make full-check` for the dependency check and all
+tests. The optional live service test is skipped unless `HALO_RAG_RUN_LIVE=1` and
+`HALO_RAG_CORPUS_PATH` are set.
+
 Use `python scripts/check_setup.py --skip-dependencies` when validating only repository
 structure and syntax, such as in a lightweight CI job.
 

@@ -1,9 +1,13 @@
 PYTHON ?= python3
 RUFF ?= ruff
 
-.PHONY: check lint syntax test setup-check
+.PHONY: check full-check lint syntax test setup-check
 
 check: lint syntax setup-check test
+
+full-check: lint syntax
+	$(PYTHON) scripts/check_setup.py
+	$(PYTHON) -m pytest -q
 
 lint:
 	$(RUFF) check .

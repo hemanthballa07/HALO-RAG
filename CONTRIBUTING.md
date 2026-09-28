@@ -18,6 +18,11 @@ Run the standard verification gate:
 make check
 ```
 
+This is the lightweight CI gate. On a machine with the full project dependencies
+installed, also run `make full-check` before a release or a model-backed change.
+It checks the runtime dependencies and runs every test. The live service test
+remains opt-in through `HALO_RAG_RUN_LIVE=1` and requires a local corpus.
+
 Changes to experiment behavior should include a focused regression test and a note about
 whether historical results need to be regenerated. Do not commit downloaded datasets,
 model weights, secrets, local caches, or generated checkpoints.
