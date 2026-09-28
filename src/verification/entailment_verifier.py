@@ -135,7 +135,7 @@ class EntailmentVerifier:
         claim: str,
         context: str,
         query: Optional[str] = None
-    ) -> Dict[str, float]:
+    ) -> Dict[str, Any]:
         """
         Verify a single claim against context.
         
@@ -146,6 +146,7 @@ class EntailmentVerifier:
         
         Returns:
             Dictionary with 'entailment', 'neutral', 'contradiction' scores
+            and the method used to produce them
         """
         # Preserve the direct-match shortcut for claims without a question.
         claim_clean = claim.strip()
@@ -156,7 +157,12 @@ class EntailmentVerifier:
         if short_answer_with_query and self._answer_sentence_matches_query(
             claim_clean, context, query
         ):
-            return {"contradiction": 0.0, "neutral": 0.0, "entailment": 1.0}
+            return {
+                "contradiction": 0.0,
+                "neutral": 0.0,
+                "entailment": 1.0,
+                "method": "question_sentence_match",
+            }
         
         # Check if the raw claim appears as a substring or as a significant phrase
         if not query and claim_normalized_raw and len(claim_normalized_raw.split()) <= 10:
@@ -170,7 +176,8 @@ class EntailmentVerifier:
                         return {
                             "contradiction": 0.0,
                             "neutral": 0.0,
-                            "entailment": 1.0
+                            "entailment": 1.0,
+                            "method": "direct_text_match",
                         }
                 else:
                     # Multi-word: check if it appears as a phrase
@@ -178,7 +185,8 @@ class EntailmentVerifier:
                     return {
                         "contradiction": 0.0,
                         "neutral": 0.0,
-                        "entailment": 1.0
+                        "entailment": 1.0,
+                        "method": "direct_text_match",
                     }
         
         # Keep the question attached to short answers that need model verification.
@@ -218,7 +226,8 @@ class EntailmentVerifier:
                         return {
                             "contradiction": 0.0,
                             "neutral": 0.0,
-                            "entailment": 1.0
+                            "entailment": 1.0,
+                            "method": "phrase_match",
                         }
         
         # Format as premise-hypothesis pair for NLI
@@ -246,6 +255,7 @@ class EntailmentVerifier:
         contradiction_score = float(probs[self.contradiction_index])
         neutral_score = float(probs[self.neutral_index])
         entailment_score = float(probs[self.entailment_index])
+        method = "nli"
         
         # If entailment score is very low but the raw claim appears in context,
         # boost the entailment score (the model might be confused by formatting)
@@ -253,6 +263,7 @@ class EntailmentVerifier:
             # Boost entailment if raw claim is clearly in context
             if len(claim_normalized_raw.split()) <= 5:  # Short answers
                 entailment_score = max(entailment_score, 0.7)
+                method = "nli_with_text_boost"
                 # Adjust other scores proportionally
                 other_total = contradiction_score + neutral_score
                 if other_total > 0:
@@ -263,7 +274,8 @@ class EntailmentVerifier:
         return {
             "contradiction": contradiction_score,
             "neutral": neutral_score,
-            "entailment": entailment_score
+            "entailment": entailment_score,
+            "method": method,
         }
     
     def _format_claim_for_verification(self, claim: str, context: str, query: Optional[str] = None) -> str:
@@ -329,7 +341,7 @@ class EntailmentVerifier:
         self,
         claims: List[str],
         contexts: List[str]
-    ) -> List[Dict[str, float]]:
+    ) -> List[Dict[str, Any]]:
         """
         Verify multiple claims against their contexts.
         
@@ -427,6 +439,7 @@ class EntailmentVerifier:
                 "entailment_score": entailment_score,
                 "contradiction_score": contradiction_score,
                 "neutral_score": neutral_score,
+                "verification_method": full_result.get("method", "unknown"),
                 "label": label,
                 "threshold": self.threshold
             })

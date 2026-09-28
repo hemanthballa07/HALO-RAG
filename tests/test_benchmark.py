@@ -72,8 +72,11 @@ def test_case_record_keeps_evidence_and_claim_scores_for_audit():
         "retrieved_docs": [7], "reranked_docs": [7],
         "reranked_texts": ["The British captured Fort Beauséjour."],
         "generated_text": "Fort Beauséjour", "claims": ["Fort Beauséjour"],
-        "verification_results": {"verification_results": [{"claim": "Fort Beauséjour",
-                                                       "entailment_score": 1.0}]},
+        "verification_results": {"verification_results": [{
+            "claim": "Fort Beauséjour",
+            "entailment_score": 1.0,
+            "verification_method": "question_sentence_match",
+        }]},
         "verified": True, "abstained": False, "revision_iterations": 0,
     }
 
@@ -83,6 +86,7 @@ def test_case_record_keeps_evidence_and_claim_scores_for_audit():
     assert record["final_evidence_texts"] == ["The British captured Fort Beauséjour."]
     assert record["claims"] == ["Fort Beauséjour"]
     assert record["claim_verification"][0]["entailment_score"] == 1.0
+    assert record["claim_verification"][0]["verification_method"] == "question_sentence_match"
     assert record["final_evidence_hit"] == 1.0
     assert record["latency_seconds"] == 1.234
 

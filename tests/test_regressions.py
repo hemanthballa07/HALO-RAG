@@ -361,7 +361,26 @@ class EntailmentVerifierTests(unittest.TestCase):
         )
 
         self.assertLess(result["entailment"], 0.75)
+        self.assertEqual(result["method"], "nli")
         self.assertIn("campuses", verifier.tokenizer.hypothesis)
+
+    def test_question_match_method_is_visible_in_generation_audit(self):
+        verifier_module = self.verifier_module()
+        verifier = verifier_module.EntailmentVerifier.__new__(
+            verifier_module.EntailmentVerifier
+        )
+        verifier.threshold = 0.75
+
+        result = verifier.verify_generation(
+            "Fort Beauséjour",
+            ["In 1755, the British captured Fort Beauséjour."],
+            ["Fort Beauséjour"],
+            "In 1755 what fort did the British surrender?",
+        )
+
+        claim_result = result["verification_results"][0]
+        self.assertEqual(claim_result["verification_method"], "question_sentence_match")
+        self.assertTrue(claim_result["is_entailed"])
 
     def test_answer_sentence_keeps_common_abbreviations_together(self):
         verifier_module = self.verifier_module()
@@ -390,7 +409,12 @@ class EntailmentVerifierTests(unittest.TestCase):
 
         def verify_claim(claim, context, query=None):
             calls.append((claim, context, query))
-            return {"contradiction": 0.1, "neutral": 0.1, "entailment": 0.8}
+            return {
+                "contradiction": 0.1,
+                "neutral": 0.1,
+                "entailment": 0.8,
+                "method": "nli",
+            }
 
         verifier.verify_claim = verify_claim
 
@@ -398,6 +422,7 @@ class EntailmentVerifierTests(unittest.TestCase):
 
         self.assertEqual(len(calls), 1)
         self.assertTrue(result["verified"])
+        self.assertEqual(result["verification_results"][0]["verification_method"], "nli")
 
     def test_generation_without_claims_is_not_verified(self):
         verifier_module = self.verifier_module()
