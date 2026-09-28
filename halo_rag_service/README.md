@@ -38,9 +38,13 @@ Check readiness with `GET /health`. Send a JSON request to `POST /generate`:
 {"query": "Where is Paris?", "top_k_retrieve": 20, "top_k_rerank": 5}
 ```
 
-The response includes the answer, evidence passages, a verification summary, and
-one of `verified`, `unverified`, or `abstained`. No public authentication, rate
-limiting, or multi-user isolation is included, so bind to localhost only.
+The response includes the answer, evidence passages, a verification summary with
+claim-level scores and scoring methods, and one of `verified`, `unverified`, or
+`abstained`. Older or alternate verifiers that do not report a method show
+`unknown`. A text-match method only means the answer and question words appeared
+near each other; it is not independent proof that the answer is supported.
+No public authentication, rate limiting, or multi-user isolation is included, so
+bind to localhost only.
 
 For single-passage questions, an optional no-answer mode limits generation to
 the top passage and asks the model to abstain when that passage does not answer:

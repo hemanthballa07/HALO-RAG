@@ -52,11 +52,20 @@ class Source(BaseModel):
     text: str
 
 
+class ClaimVerification(BaseModel):
+    claim: str
+    is_entailed: bool
+    entailment_score: float
+    label: str
+    verification_method: str
+
+
 class VerificationSummary(BaseModel):
     verified: bool
     num_entailed: int
     num_total: int
     entailment_rate: float
+    claims: list[ClaimVerification] = Field(default_factory=list)
 
 
 class GenerateResponse(BaseModel):
@@ -160,6 +169,13 @@ def create_app(
                     num_entailed=int(verification["num_entailed"]),
                     num_total=int(verification["num_total"]),
                     entailment_rate=float(verification["entailment_rate"]),
+                    claims=[
+                        ClaimVerification.model_validate({
+                            **claim,
+                            "verification_method": claim.get("verification_method") or "unknown",
+                        })
+                        for claim in verification.get("verification_results", [])
+                    ],
                 ),
             )
         except Exception as exc:

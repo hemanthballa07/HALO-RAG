@@ -30,6 +30,13 @@ class FakePipeline:
                 "num_entailed": 1,
                 "num_total": 1,
                 "entailment_rate": 1.0,
+                "verification_results": [{
+                    "claim": "Paris is in France.",
+                    "is_entailed": True,
+                    "entailment_score": 1.0,
+                    "label": "ENTAILED",
+                    "verification_method": "question_sentence_match",
+                }],
             },
             "verified": True,
             "abstained": False,
@@ -64,6 +71,13 @@ def test_service_loads_pipeline_once_and_maps_current_result_format():
                 "verification": {
                     "verified": True, "num_entailed": 1,
                     "num_total": 1, "entailment_rate": 1.0,
+                    "claims": [{
+                        "claim": "Paris is in France.",
+                        "is_entailed": True,
+                        "entailment_score": 1.0,
+                        "label": "ENTAILED",
+                        "verification_method": "question_sentence_match",
+                    }],
                 },
             }
     assert loads == [True]
@@ -106,6 +120,23 @@ def test_service_distinguishes_unverified_and_abstained_answers():
         pipeline.generate = abstained
         response = client.post("/generate", json={"query": "Where is Paris?"})
         assert response.json()["status"] == "abstained"
+
+
+def test_service_labels_unattributed_claim_scores_as_unknown():
+    pipeline = FakePipeline()
+    original_generate = pipeline.generate
+
+    def without_method(**kwargs):
+        result = original_generate(**kwargs)
+        del result["verification_results"]["verification_results"][0]["verification_method"]
+        return result
+
+    pipeline.generate = without_method
+    with TestClient(create_app(lambda: pipeline)) as client:
+        response = client.post("/generate", json={"query": "Where is Paris?"})
+
+    assert response.status_code == 200
+    assert response.json()["verification"]["claims"][0]["verification_method"] == "unknown"
 
 
 def test_service_hides_internal_errors():
