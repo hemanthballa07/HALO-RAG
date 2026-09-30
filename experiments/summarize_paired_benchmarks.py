@@ -83,7 +83,15 @@ def combine_runs(paths: list[Path]) -> dict:
             variants = current_variants
             combined = {variant: [] for variant in variants}
         elif current_protocol != protocol or current_variants != variants:
-            raise ValueError(f"incompatible benchmark protocol in {path}")
+            changed = [
+                field for field in PROTOCOL_FIELDS
+                if current_protocol[field] != protocol[field]
+            ]
+            if current_variants != variants:
+                changed.append("variants")
+            raise ValueError(
+                f"incompatible benchmark protocol in {path}: {', '.join(changed)}"
+            )
         if metadata["seed"] in seeds:
             raise ValueError(f"duplicate seed {metadata['seed']}")
         seeds.add(metadata["seed"])

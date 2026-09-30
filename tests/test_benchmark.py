@@ -241,7 +241,7 @@ def test_combined_benchmarks_reject_protocol_changes(tmp_path):
     first_path.write_text(json.dumps(first), encoding="utf-8")
     second_path.write_text(json.dumps(second), encoding="utf-8")
 
-    with pytest.raises(ValueError, match="incompatible benchmark protocol"):
+    with pytest.raises(ValueError, match=r"incompatible benchmark protocol.*corpus_size"):
         combine_runs([first_path, second_path])
 
 
@@ -263,7 +263,7 @@ def test_combined_benchmarks_reject_code_changes(tmp_path):
     payload["metadata"]["source_sha256"] = "second"
     second_path.write_text(json.dumps(payload), encoding="utf-8")
 
-    with pytest.raises(ValueError, match="incompatible benchmark protocol"):
+    with pytest.raises(ValueError, match=r"incompatible benchmark protocol.*source_sha256"):
         combine_runs([first_path, second_path])
 
     payload["metadata"].pop("source_sha256")
