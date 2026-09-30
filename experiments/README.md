@@ -79,9 +79,11 @@ python experiments/summarize_paired_benchmarks.py \
 ```
 
 The summary checks that the dataset, models, configuration, retrieval settings,
-and variants match. It reports split scores, paired improvements and harms, and
-median and 95th-percentile latency. It also lists repeated question IDs across
-runs; repeated questions should not be treated as independent observations.
+variants, and source fingerprint match. Rerun earlier seeds after a verifier
+change; results from different source revisions cannot be combined. It reports
+split scores, paired improvements and harms, and median and 95th-percentile
+latency. It also lists repeated question IDs across runs; repeated questions
+should not be treated as independent observations.
 
 If label-based errors need review, export the nonexact cases without running
 the models again:

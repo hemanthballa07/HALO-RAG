@@ -40,6 +40,25 @@ For unanswerable cases, `false_accept_claim_method_counts` attributes accepted
 claims in falsely verified answers to their scoring method. These are claim
 counts, not independent question counts.
 
+## Diagnostic snapshot, 2026-09-30
+
+Three SQuAD v2 validation runs used seeds 42, 123, and 456, with 20 distinct
+questions and a 500-passage corpus per seed. All runs used source fingerprint
+`9d716906aa3ff3039874b6298cb99507c562360c25df4aaf49c7da20c1a4a17d`.
+The focused variant uses one reranked passage and an explicit no-answer prompt.
+
+| Variant | Overall exact match | Answerable exact match | Verified answers on source-unanswerable questions |
+| --- | ---: | ---: | ---: |
+| Baseline | 19/60 | 19/30 | 14/30 |
+| Revision | 32/60 | 20/30 | 18/30 |
+| Focused | 41/60 | 24/30 | 4/30 |
+
+The last column is a diagnostic false-accept count based on the source dataset
+label. It is not an independent judgment of support in the retrieved passage.
+All four focused false accepts used `question_sentence_match`; NLI accepted no
+focused claims in this sample. The sample is too small for a production accuracy
+claim. The four cases need independent evidence review before further tuning.
+
 Short-answer verification still has an answerability limitation. Its lexical
 shortcut can accept an answer that appears near question terms even when the
 passage describes a different subject or action. For example, a passage saying
