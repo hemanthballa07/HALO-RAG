@@ -235,13 +235,38 @@ def test_paired_benchmark_can_run_focused_mode_on_the_same_case():
                 "revision_iterations": 0,
             }
 
-    rows = evaluate_cases(Pipeline(), benchmark, 42, 20, 5, include_focused=True)
+    pipeline = Pipeline()
+    pipeline.enable_revision = True
+    rows = evaluate_cases(pipeline, benchmark, 42, 20, 5, include_focused=True)
 
     assert list(rows) == ["baseline", "revision", "focused"]
     assert [enabled for enabled, _ in calls] == [False, True, False]
     assert calls[2][1]["evidence_limit"] == 1
     assert calls[2][1]["abstain_if_unanswered"] is True
     assert all(row["exact_match"] == 1.0 for variant in rows.values() for row in variant)
+    assert pipeline.enable_revision is True
+
+
+def test_paired_benchmark_restores_revision_setting_after_failure():
+    case = BenchmarkCase(
+        example_id="sample", question="Where?", context="Paris", references=("Paris",),
+        relevant_doc_id=0, answerable=True,
+    )
+    benchmark = BenchmarkSet(
+        corpus=("Paris",), document_hashes=("a",), cases=(case,), seed=42,
+    )
+
+    class Pipeline:
+        enable_revision = True
+
+        def generate(self, query, **kwargs):
+            raise RuntimeError("generation failed")
+
+    pipeline = Pipeline()
+    with pytest.raises(RuntimeError, match="generation failed"):
+        evaluate_cases(pipeline, benchmark, 42, 20, 5)
+
+    assert pipeline.enable_revision is True
 
 
 def test_review_export_rejects_mixed_benchmark_protocols(tmp_path):

@@ -60,28 +60,32 @@ def evaluate_cases(
     rows = {"baseline": [], "revision": []}
     if include_focused:
         rows["focused"] = []
-    for index, case in enumerate(benchmark.cases):
-        for variant in rows:
-            pipeline.enable_revision = variant == "revision"
-            set_seed(seed + index)
-            start = time.perf_counter()
-            focused_kwargs = (
-                {"evidence_limit": 1, "abstain_if_unanswered": True}
-                if variant == "focused" else {}
-            )
-            result = pipeline.generate(
-                case.question,
-                top_k_retrieve=top_k_retrieve,
-                top_k_rerank=top_k_rerank,
-                do_sample=False,
-                **focused_kwargs,
-            )
-            elapsed = time.perf_counter() - start
-            scores = score_answer(
-                result["generated_text"], case.references, result.get("abstained", False)
-            )
-            rows[variant].append(case_result_record(case, result, scores, elapsed))
-        print(f"Completed {index + 1}/{len(benchmark.cases)} questions", flush=True)
+    original_revision = pipeline.enable_revision
+    try:
+        for index, case in enumerate(benchmark.cases):
+            for variant in rows:
+                pipeline.enable_revision = variant == "revision"
+                set_seed(seed + index)
+                start = time.perf_counter()
+                focused_kwargs = (
+                    {"evidence_limit": 1, "abstain_if_unanswered": True}
+                    if variant == "focused" else {}
+                )
+                result = pipeline.generate(
+                    case.question,
+                    top_k_retrieve=top_k_retrieve,
+                    top_k_rerank=top_k_rerank,
+                    do_sample=False,
+                    **focused_kwargs,
+                )
+                elapsed = time.perf_counter() - start
+                scores = score_answer(
+                    result["generated_text"], case.references, result.get("abstained", False)
+                )
+                rows[variant].append(case_result_record(case, result, scores, elapsed))
+            print(f"Completed {index + 1}/{len(benchmark.cases)} questions", flush=True)
+    finally:
+        pipeline.enable_revision = original_revision
     return rows
 
 
