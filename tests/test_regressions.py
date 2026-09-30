@@ -192,6 +192,29 @@ class RetrievalTests(unittest.TestCase):
             },
         )
 
+    def test_embedding_dimension_uses_current_method_with_legacy_fallback(self):
+        retrieval = self.retrieval_module()
+        retrieval.resolve_device = lambda _preferred: "mps"
+
+        class CurrentModel:
+            def get_embedding_dimension(self):
+                return 768
+
+            def get_sentence_embedding_dimension(self):
+                raise AssertionError("deprecated method should not be called")
+
+        retrieval.SentenceTransformer = lambda *_args, **_kwargs: CurrentModel()
+        current = retrieval.HybridRetriever()
+        self.assertEqual(current.embedding_dim, 768)
+
+        class LegacyModel:
+            def get_sentence_embedding_dimension(self):
+                return 384
+
+        retrieval.SentenceTransformer = lambda *_args, **_kwargs: LegacyModel()
+        legacy = retrieval.HybridRetriever()
+        self.assertEqual(legacy.embedding_dim, 384)
+
     def test_dense_retrieval_clamps_top_k_to_corpus_size(self):
         retrieval = self.retrieval_module()
 

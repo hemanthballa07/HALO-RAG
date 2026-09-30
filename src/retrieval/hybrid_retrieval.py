@@ -46,7 +46,10 @@ class HybridRetriever:
         
         # Initialize dense retriever
         self.dense_model = SentenceTransformer(dense_model_name, device=device)
-        self.embedding_dim = self.dense_model.get_sentence_embedding_dimension()
+        get_dimension = getattr(self.dense_model, "get_embedding_dimension", None)
+        if get_dimension is None:
+            get_dimension = self.dense_model.get_sentence_embedding_dimension
+        self.embedding_dim = get_dimension()
         self.device = device
         
         # Initialize sparse retriever (BM25)
