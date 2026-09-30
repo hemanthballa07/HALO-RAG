@@ -1,11 +1,24 @@
 """The verifier challenge runner is testable without loading model weights."""
 
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 
 from experiments.evaluate_verifier_challenges import evaluate_cases, load_challenges
-from src.verification.entailment_verifier import EntailmentVerifier
+from tests.test_regressions import load_module
+
+
+torch_stub = ModuleType("torch")
+torch_stub.Tensor = type("Tensor", (), {})
+transformers_stub = ModuleType("transformers")
+transformers_stub.AutoTokenizer = object
+transformers_stub.AutoModelForSequenceClassification = object
+EntailmentVerifier = load_module(
+    "halo_challenge_verifier",
+    "src/verification/entailment_verifier.py",
+    {"torch": torch_stub, "transformers": transformers_stub},
+).EntailmentVerifier
 
 
 FIXTURE = Path(__file__).resolve().parents[1] / "experiments/fixtures/verifier_challenges.json"

@@ -338,6 +338,7 @@ class EntailmentVerifierTests(unittest.TestCase):
     @staticmethod
     def verifier_module():
         torch = types.ModuleType("torch")
+        torch.Tensor = type("Tensor", (), {})
         torch.no_grad = lambda: None
         transformers = types.ModuleType("transformers")
         transformers.AutoTokenizer = types.SimpleNamespace()
@@ -596,15 +597,9 @@ class AdaptiveRevisionLimitTests(unittest.TestCase):
 
 class ExperimentRunnerTests(unittest.TestCase):
     def test_json_result_metrics_are_flattened(self):
-        yaml = types.ModuleType("yaml")
-        src = types.ModuleType("src")
-        src_utils = types.ModuleType("src.utils")
-        src_utils.get_commit_hash = lambda: "test"
-        src_utils.get_timestamp = lambda: "test"
         runner = load_module(
             "halo_test_runner",
             "experiments/run_final_experiments.py",
-            {"yaml": yaml, "src": src, "src.utils": src_utils},
         )
 
         metrics = runner.extract_numeric_metrics(
