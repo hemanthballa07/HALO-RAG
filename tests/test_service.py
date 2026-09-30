@@ -139,6 +139,20 @@ def test_service_labels_unattributed_claim_scores_as_unknown():
     assert response.json()["verification"]["claims"][0]["verification_method"] == "unknown"
 
 
+def test_service_passes_single_passage_no_answer_options():
+    pipeline = FakePipeline()
+    with TestClient(create_app(lambda: pipeline)) as client:
+        response = client.post("/generate", json={
+            "query": "Where is Paris?",
+            "evidence_limit": 1,
+            "abstain_if_unanswered": True,
+        })
+
+    assert response.status_code == 200
+    assert pipeline.calls[0]["evidence_limit"] == 1
+    assert pipeline.calls[0]["abstain_if_unanswered"] is True
+
+
 def test_service_hides_internal_errors():
     pipeline = FakePipeline()
     pipeline.failure = RuntimeError("private model path")

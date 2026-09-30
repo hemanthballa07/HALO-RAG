@@ -58,7 +58,10 @@ response means the current claim checker accepted the answer, not that the
 question was answerable from the evidence. The checker can mistake nearby words
 for support when a passage describes a different subject or action. Inspect the
 returned source text before relying on an answer. Single-passage mode may also
-omit evidence needed for multi-hop questions, so it is opt-in.
+omit evidence needed for multi-hop questions, so it is opt-in. The no-answer
+option also skips adaptive revision, which could otherwise retrieve additional
+passages after an unsuccessful verification. An answer that is not verified is
+returned as `unverified` without expanding the selected evidence.
 
 Install `requirements-dev.txt` to run the HTTP tests with
 `python -m pytest -q tests/test_service.py`. They use a

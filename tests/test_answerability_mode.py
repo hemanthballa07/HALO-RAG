@@ -85,6 +85,22 @@ def test_answerable_response_still_uses_verification():
     assert result["abstained"] is False
 
 
+def test_no_answer_mode_does_not_expand_evidence_during_revision():
+    pipeline, _ = make_pipeline("Paris")
+    pipeline.verifier.verify_generation = lambda *args, **kwargs: {
+        "verified": False,
+        "verification_results": [],
+        "entailment_rate": 0.0,
+    }
+
+    result = pipeline.generate("Where?", evidence_limit=1, abstain_if_unanswered=True)
+
+    assert result["reranked_texts"] == ["first passage"]
+    assert result["revision_iterations"] == 0
+    assert result["verified"] is False
+    assert result["abstained"] is False
+
+
 def test_evidence_limit_must_be_positive():
     pipeline, _ = make_pipeline("Paris")
 

@@ -156,7 +156,8 @@ class SelfVerificationRAGPipeline:
             do_sample: Whether to use sampling (overrides config)
             num_beams: Number of beams for beam search (overrides config)
             evidence_limit: Maximum number of reranked passages sent to generation
-            abstain_if_unanswered: Let the generator return an explicit no-answer marker
+            abstain_if_unanswered: Let the generator return an explicit no-answer marker;
+                skip revision so the answer stays tied to the selected evidence
             **generation_kwargs: Additional generation parameters
         
         Returns:
@@ -236,7 +237,13 @@ class SelfVerificationRAGPipeline:
         revision_iterations = 0
         revision_history = []  # Track revision history for transparency
         
-        if self.enable_revision and self.revision_strategy and max_revision_iterations > 0 and not abstained:
+        if (
+            self.enable_revision
+            and self.revision_strategy
+            and max_revision_iterations > 0
+            and not abstained
+            and not abstain_if_unanswered
+        ):
             if not verification_results.get("verified", False):
                 for iteration in range(max_revision_iterations):
                     # Store context before revision for comparison
