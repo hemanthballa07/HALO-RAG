@@ -15,6 +15,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 import yaml
 
+from experiments.summarize_paired_benchmarks import PROTOCOL_FIELDS
 from src.data import load_dataset_from_config
 from src.evaluation.benchmark import build_benchmark
 
@@ -25,6 +26,38 @@ COLUMNS = (
     "source_passage", "evidence_passage", "answers_question",
     "supported_by_evidence", "reviewer_notes",
 )
+
+
+def load_review_sources(paths: list[Path], variant: str, config_sha256: str) -> list[tuple[Path, dict]]:
+    sources = []
+    protocol = None
+    seeds = set()
+    for path in paths:
+        source = json.loads(path.read_text(encoding="utf-8"))
+        metadata = source["metadata"]
+        missing = [field for field in PROTOCOL_FIELDS if field not in metadata]
+        if missing:
+            raise ValueError(f"benchmark metadata missing {', '.join(missing)} in {path}; rerun it")
+        current_protocol = {field: metadata[field] for field in PROTOCOL_FIELDS}
+        if protocol is None:
+            protocol = current_protocol
+        elif current_protocol != protocol:
+            changed = [
+                field for field in PROTOCOL_FIELDS
+                if current_protocol[field] != protocol[field]
+            ]
+            raise ValueError(f"incompatible benchmark protocol in {path}: {', '.join(changed)}")
+        if metadata["dataset"] != "squad_v2" or metadata["split"] != "validation":
+            raise ValueError(f"unsupported dataset in {path}")
+        if metadata["config_sha256"] != config_sha256:
+            raise ValueError(f"configuration does not match {path}")
+        if variant not in source["cases"]:
+            raise ValueError(f"variant {variant!r} is missing from {path}")
+        if metadata["seed"] in seeds:
+            raise ValueError(f"duplicate seed {metadata['seed']}")
+        seeds.add(metadata["seed"])
+        sources.append((path, source))
+    return sources
 
 
 def spreadsheet_safe(value):
@@ -88,19 +121,15 @@ def main() -> int:
 
     config_bytes = args.config.read_bytes()
     config = yaml.safe_load(config_bytes)
+    sources = load_review_sources(
+        args.benchmarks, args.variant, hashlib.sha256(config_bytes).hexdigest()
+    )
     full_config = copy.deepcopy(config)
     full_config["datasets"]["sample_limit"] = None
     examples = load_dataset_from_config(full_config, split="validation")
     rows = []
-    for path in args.benchmarks:
-        source = json.loads(path.read_text(encoding="utf-8"))
+    for path, source in sources:
         metadata = source["metadata"]
-        if metadata["dataset"] != "squad_v2" or metadata["split"] != "validation":
-            raise ValueError(f"unsupported dataset in {path}")
-        if metadata["config_sha256"] != hashlib.sha256(config_bytes).hexdigest():
-            raise ValueError(f"configuration does not match {path}")
-        if args.variant not in source["cases"]:
-            raise ValueError(f"variant {args.variant!r} is missing from {path}")
         benchmark = build_benchmark(
             examples, metadata["question_count"], metadata["corpus_size"], metadata["seed"]
         )

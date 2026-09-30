@@ -1,12 +1,15 @@
 """Checks for the optional single-passage abstention mode."""
 
+import json
 from types import SimpleNamespace
 
 import pytest
 import torch
 
 from experiments.evaluate_focused_answers import summarize
-from experiments.export_benchmark_review import review_rows, spreadsheet_safe
+from experiments.export_benchmark_review import (
+    load_review_sources, review_rows, spreadsheet_safe,
+)
 from experiments.generate_human_eval_samples import (
     generate_human_eval_samples, save_human_eval_samples,
 )
@@ -229,6 +232,34 @@ def test_paired_benchmark_can_run_focused_mode_on_the_same_case():
     assert calls[2][1]["evidence_limit"] == 1
     assert calls[2][1]["abstain_if_unanswered"] is True
     assert all(row["exact_match"] == 1.0 for variant in rows.values() for row in variant)
+
+
+def test_review_export_rejects_mixed_benchmark_protocols(tmp_path):
+    metadata = {
+        "dataset": "squad_v2", "split": "validation", "corpus_size": 500,
+        "top_k_retrieve": 20, "top_k_rerank": 5, "max_revisions": 3,
+        "config_sha256": "config", "source_sha256": "first",
+        "models": {}, "package_versions": {}, "seed": 42,
+    }
+    first = tmp_path / "first.json"
+    second = tmp_path / "second.json"
+    first.write_text(json.dumps({"metadata": metadata, "cases": {"focused": []}}))
+    second_metadata = {**metadata, "seed": 123, "source_sha256": "second"}
+    second.write_text(json.dumps({
+        "metadata": second_metadata, "cases": {"focused": []},
+    }))
+
+    with pytest.raises(ValueError, match="incompatible benchmark protocol.*source_sha256"):
+        load_review_sources([first, second], "focused", "config")
+
+    second_metadata["source_sha256"] = "first"
+    second.write_text(json.dumps({
+        "metadata": second_metadata, "cases": {"focused": []},
+    }))
+    assert len(load_review_sources([first, second], "focused", "config")) == 2
+
+    with pytest.raises(ValueError, match="duplicate seed 42"):
+        load_review_sources([first, first], "focused", "config")
 
 
 def test_review_export_keeps_source_and_retrieved_evidence_separate():

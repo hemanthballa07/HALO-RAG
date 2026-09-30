@@ -24,16 +24,17 @@ sheet with:
 
 ```bash
 python experiments/score_benchmark_review.py \
-  --csv results/human_eval/focused_seed2026_2027_review.csv \
-  --output results/human_eval/focused_seed2026_2027_review_report.json
+  --csv results/human_eval/focused_false_accepts_current_protocol.csv \
+  --output results/human_eval/focused_false_accepts_current_protocol_report.json
 ```
 
 The command exits without writing a report if any judgment is blank or invalid.
 It also refuses to overwrite an existing report. Omit `--output` to print the
 summary. The report counts abstentions separately and breaks answered cases
 down by source label and verifier status. Its counts cover only the exported
-nonexact cases, not all benchmark answers. Do not present them as an overall
-factuality rate.
+cases, not all benchmark answers. Do not present them as an overall
+factuality rate. Multi-run exports require matching benchmark protocol and
+distinct seeds; do not mix sheets from different code versions.
 
 ## Overview
 
