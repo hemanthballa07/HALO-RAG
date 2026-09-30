@@ -36,7 +36,6 @@ def test_service_with_real_pipeline():
             "evidence_limit": 1,
             "abstain_if_unanswered": True,
             "max_new_tokens": 32,
-            "do_sample": False,
         })
         assert focused.status_code == 200, focused.text
         focused_result = focused.json()

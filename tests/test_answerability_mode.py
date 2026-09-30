@@ -60,6 +60,7 @@ def test_evidence_limit_is_applied_before_generation_and_verification():
     result = pipeline.generate("Where?", evidence_limit=1, top_k_rerank=2)
 
     assert seen["context"] == "first passage"
+    assert "do_sample" not in seen["kwargs"]
     assert result["initial_reranked_docs"] == [101]
     assert result["reranked_docs"] == [101]
 
@@ -73,6 +74,7 @@ def test_unanswerable_marker_abstains_without_verification_or_revision():
     result = pipeline.generate("Where?", evidence_limit=1, abstain_if_unanswered=True)
 
     assert seen["kwargs"]["abstain_if_unanswered"] is True
+    assert seen["kwargs"]["do_sample"] is False
     assert result["abstained"] is True
     assert result["verified"] is False
     assert result["revision_iterations"] == 0
@@ -86,6 +88,14 @@ def test_answerable_response_still_uses_verification():
     assert seen["kwargs"]["abstain_if_unanswered"] is True
     assert result["verified"] is True
     assert result["abstained"] is False
+
+
+def test_no_answer_mode_respects_explicit_sampling():
+    pipeline, seen = make_pipeline("Paris")
+
+    pipeline.generate("Where?", abstain_if_unanswered=True, do_sample=True)
+
+    assert seen["kwargs"]["do_sample"] is True
 
 
 def test_no_answer_mode_does_not_expand_evidence_during_revision():

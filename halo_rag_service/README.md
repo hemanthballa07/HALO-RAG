@@ -53,6 +53,9 @@ the top passage and asks the model to abstain when that passage does not answer:
 {"query": "Where is Paris?", "evidence_limit": 1, "abstain_if_unanswered": true}
 ```
 
+This mode uses deterministic decoding by default. Set `do_sample` to `true` only
+if you intentionally want sampled answers.
+
 This can reduce unsupported answers, but it is not a guarantee. A `verified`
 response means the current claim checker accepted the answer, not that the
 question was answerable from the evidence. The checker can mistake nearby words

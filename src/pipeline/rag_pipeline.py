@@ -157,7 +157,8 @@ class SelfVerificationRAGPipeline:
             num_beams: Number of beams for beam search (overrides config)
             evidence_limit: Maximum number of reranked passages sent to generation
             abstain_if_unanswered: Let the generator return an explicit no-answer marker;
-                skip revision so the answer stays tied to the selected evidence
+                use deterministic decoding unless sampling is requested, and skip
+                revision so the answer stays tied to the selected evidence
             **generation_kwargs: Additional generation parameters
         
         Returns:
@@ -201,6 +202,8 @@ class SelfVerificationRAGPipeline:
             gen_kwargs["temperature"] = temperature
         if do_sample is not None:
             gen_kwargs["do_sample"] = do_sample
+        elif abstain_if_unanswered:
+            gen_kwargs["do_sample"] = False
         if num_beams is not None:
             gen_kwargs["num_beams"] = num_beams
         if abstain_if_unanswered:
