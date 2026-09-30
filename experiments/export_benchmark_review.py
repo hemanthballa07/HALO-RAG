@@ -1,4 +1,4 @@
-"""Export nonexact benchmark answers with their evidence for manual review."""
+"""Export benchmark answers with their evidence for manual review."""
 
 from __future__ import annotations
 
@@ -33,7 +33,11 @@ def spreadsheet_safe(value):
     return value
 
 
-def review_rows(benchmark, source: dict, variant: str) -> list[dict]:
+def review_rows(
+    benchmark, source: dict, variant: str, scope: str = "nonexact"
+) -> list[dict]:
+    if scope not in {"nonexact", "false-accepts"}:
+        raise ValueError(f"unsupported review scope: {scope}")
     metadata = source["metadata"]
     cases = source["cases"][variant]
     if [row["example_id"] for row in cases] != [case.example_id for case in benchmark.cases]:
@@ -41,7 +45,10 @@ def review_rows(benchmark, source: dict, variant: str) -> list[dict]:
 
     selected = []
     for case, row in zip(benchmark.cases, cases):
-        if row["exact_match"] == 1.0:
+        if scope == "nonexact" and row["exact_match"] == 1.0:
+            continue
+        if (scope == "false-accepts"
+                and (case.answerable or not row["verified"] or row["abstained"])):
             continue
         evidence_ids = row["reranked_doc_ids"]
         if not evidence_ids or any(not 0 <= index < len(benchmark.corpus) for index in evidence_ids):
@@ -69,6 +76,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("benchmarks", nargs="+", type=Path)
     parser.add_argument("--variant", default="focused")
+    parser.add_argument(
+        "--scope", choices=("nonexact", "false-accepts"), default="nonexact",
+        help="Select all nonexact answers or only verified unanswerable answers",
+    )
     parser.add_argument("--config", type=Path, default=Path("config/config.yaml"))
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
@@ -97,7 +108,7 @@ def main() -> int:
             raise ValueError(f"passage hashes do not match {path}")
         if [case.example_id for case in benchmark.cases] != metadata["question_ids"]:
             raise ValueError(f"question IDs do not match {path}")
-        rows.extend(review_rows(benchmark, source, args.variant))
+        rows.extend(review_rows(benchmark, source, args.variant, scope=args.scope))
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open("x", newline="", encoding="utf-8") as handle:

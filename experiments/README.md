@@ -98,6 +98,10 @@ The CSV contains both the source passage and the passage used by the pipeline.
 The human judgment columns are intentionally blank. The exporter refuses to
 overwrite an existing review file.
 
+To review only verified answers to source-unanswerable questions, add
+`--scope false-accepts`. This is the benchmark's false-accept definition, not
+an independent judgment that the retrieved passage fails to support the answer.
+
 Once an independent reviewer fills those columns, run
 `score_benchmark_review.py` to validate the labels and count supported,
 unsupported, irrelevant, and unclear answers. See

@@ -242,6 +242,39 @@ def test_review_export_keeps_source_and_retrieved_evidence_separate():
     assert rows[0]["supported_by_evidence"] == ""
 
 
+def test_review_export_can_select_verified_unanswerable_answers():
+    cases = tuple(
+        BenchmarkCase(
+            example_id=example_id, question="Where?", context="Source passage.",
+            references=("Paris",) if answerable else (), relevant_doc_id=0,
+            answerable=answerable,
+        )
+        for example_id, answerable in (
+            ("false_accept", False), ("abstained", False), ("answerable", True)
+        )
+    )
+    benchmark = BenchmarkSet(
+        corpus=("Source passage.", "Retrieved passage."),
+        document_hashes=("a", "b"), cases=cases, seed=3,
+    )
+    rows = [
+        {
+            "example_id": case.example_id, "exact_match": 0.0,
+            "reranked_doc_ids": [1], "generated": "Paris",
+            "abstained": case.example_id == "abstained",
+            "verified": case.example_id != "abstained", "final_evidence_hit": 0.0,
+        }
+        for case in cases
+    ]
+    source = {"metadata": {"seed": 3}, "cases": {"focused": rows}}
+
+    selected = review_rows(benchmark, source, "focused", scope="false-accepts")
+
+    assert [row["example_id"] for row in selected] == ["false_accept"]
+    assert selected[0]["source_passage"] == "Source passage."
+    assert selected[0]["evidence_passage"] == "Retrieved passage."
+
+
 def test_review_export_escapes_spreadsheet_formulas():
     assert spreadsheet_safe("=2+2") == "'=2+2"
     assert spreadsheet_safe("  @command") == "'  @command"

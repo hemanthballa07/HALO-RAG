@@ -12,6 +12,9 @@ answer with the question and the evidence passage. Fill in:
 - `reviewer_notes`: Briefly explain ambiguous or disputed cases.
 
 `source_label` is the original dataset label. It is not a human support judgment.
+Use `--scope false-accepts` when exporting only verified answers to questions
+the source dataset marked unanswerable. Review both `source_passage` and
+`evidence_passage`; the latter is what the system used to verify its answer.
 If the system abstained, mark the first two fields `NOT APPLICABLE` and note
 whether the source passage appears to contain an answer. Do not overwrite a
 partially annotated review CSV with a new export.
