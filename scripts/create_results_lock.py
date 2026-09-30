@@ -125,6 +125,9 @@ def validate_manifest(manifest_path: Path, root: Path) -> dict:
                     expected_seed=seed, expected_split=manifest["split"],
                     expected_iterations=expected_iterations,
                     expected_commit=manifest["commit_hash"],
+                    expected_dataset=manifest["dataset"],
+                    expected_sample_limit=config["datasets"].get("sample_limit"),
+                    check_sample_limit=True,
                 )
                 if parsed_metrics != record["metrics"]:
                     raise ValueError(f"{experiment} seed {seed} metrics disagree with archived JSON")

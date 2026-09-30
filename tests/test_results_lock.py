@@ -35,7 +35,8 @@ def artifact_payload(experiment, seed, value):
                              "commit_hash": "12345678"},
     }
     metadata = {
-        "seed": seed, "split": "validation", "sample_limit": None, "total_queries": 10,
+        "dataset": "squad_v2", "seed": seed, "split": "validation",
+        "sample_limit": 5000, "total_queries": 10,
     }
     if experiment not in {"exp7_ablation_study", "exp8_stress_test"}:
         metadata["commit_hash"] = "12345678"
@@ -144,6 +145,28 @@ def test_changed_seed_artifact_or_config_is_rejected(tmp_path):
     with pytest.raises(ValueError, match="configuration changed"):
         create_results_lock(manifest_path, tmp_path / "second/RESULTS_LOCK.md",
                             root=tmp_path / "second")
+
+
+@pytest.mark.parametrize("field,value,error", [
+    ("dataset", "hotpotqa", "artifact dataset hotpotqa does not match squad_v2"),
+    ("sample_limit", 100, "artifact sample_limit 100 does not match 5000"),
+])
+def test_release_rechecks_artifact_dataset_and_limit(tmp_path, field, value, error):
+    manifest_path = complete_run(tmp_path)
+    artifact = manifest_path.parent / "exp1_baseline_seed42.json"
+    payload = json.loads(artifact.read_text(encoding="utf-8"))
+    payload["metadata"][field] = value
+    artifact.write_text(json.dumps(payload), encoding="utf-8")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["artifacts"]["exp1_baseline"]["42"]["sha256"] = hash_file(artifact)
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    (tmp_path / "results/metrics/final_aggregated_results.json").write_text(
+        json.dumps(manifest), encoding="utf-8"
+    )
+
+    with pytest.raises(ValueError, match=error):
+        create_results_lock(manifest_path, tmp_path / "RESULTS_LOCK.md", root=tmp_path)
+    assert not (tmp_path / "RESULTS_LOCK.md").exists()
 
 
 def test_stale_final_summary_is_rejected(tmp_path):
