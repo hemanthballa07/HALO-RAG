@@ -2,6 +2,7 @@
 
 import json
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -450,3 +451,47 @@ def test_full_run_marks_midrun_source_changes_incomplete(tmp_path, monkeypatch):
     assert manifest["status"] == "incomplete"
     assert "repository worktree changed during the run" in manifest["failures"]
     assert not (tmp_path / "results/metrics/final_summary.csv").exists()
+
+
+def test_full_run_marks_publication_failure_incomplete(tmp_path, monkeypatch):
+    monkeypatch.setattr(runner, "project_root", tmp_path)
+    config = tmp_path / "config/config.yaml"
+    config.parent.mkdir(parents=True)
+    config.write_text(
+        "verification:\n  threshold: 0.75\n"
+        "datasets:\n  active: squad_v2\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(runner, "check_training_readiness", lambda *_args: None)
+    monkeypatch.setattr(runner, "repository_commit", lambda _root: "12345678")
+    monkeypatch.setattr(runner, "repository_is_clean", lambda _root: True)
+
+    def aggregate_results_across_seeds(**kwargs):
+        kwargs["archive_dir"].mkdir(parents=True)
+        return {}, [], {}
+
+    def fail_publication(*_args, output_path):
+        Path(output_path).write_text("partial", encoding="utf-8")
+        raise OSError("results directory is read-only")
+
+    create_summary = runner.create_final_summary_csv
+    monkeypatch.setattr(runner, "aggregate_results_across_seeds", aggregate_results_across_seeds)
+    monkeypatch.setattr(runner, "create_final_summary_csv", fail_publication)
+    monkeypatch.setattr(sys, "argv", ["run_final_experiments.py"])
+
+    assert runner.main() == 1
+    manifest_path = next((tmp_path / "results/metrics/final_runs").glob("*/manifest.json"))
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["status"] == "incomplete"
+    assert "final result publication failed" in manifest["failures"][0]
+    assert not (tmp_path / "results/metrics/final_summary.csv").exists()
+    assert not (tmp_path / "results/metrics/final_aggregated_results.json").exists()
+
+    monkeypatch.setattr(runner, "create_final_summary_csv", create_summary)
+    assert runner.main() == 0
+    published = json.loads(
+        (tmp_path / "results/metrics/final_aggregated_results.json").read_text(encoding="utf-8")
+    )
+    assert published["status"] == "complete"
+    assert published["failures"] == []
+    assert (tmp_path / "results/metrics/final_summary.csv").exists()

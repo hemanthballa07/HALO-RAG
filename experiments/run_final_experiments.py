@@ -495,6 +495,25 @@ def main():
         "timestamp": get_timestamp(),
         "commit_hash": run_commit,
     }
+    summary_path = project_root / "results/metrics/final_summary.csv"
+    results_json_path = project_root / "results/metrics/final_aggregated_results.json"
+    if not failures and not diagnostic:
+        try:
+            staged_summary = archive_dir / "final_summary.csv.pending"
+            staged_results = archive_dir / "final_aggregated_results.json.pending"
+            create_final_summary_csv(
+                aggregated_results,
+                output_path=str(staged_summary),
+            )
+            with staged_results.open("x", encoding="utf-8") as handle:
+                json.dump(manifest, handle, indent=2)
+                handle.write("\n")
+            os.replace(staged_summary, summary_path)
+            os.replace(staged_results, results_json_path)
+        except OSError as exc:
+            failures.append(f"final result publication failed: {exc}")
+            manifest["status"] = "incomplete"
+
     manifest_path = archive_dir / "manifest.json"
     with manifest_path.open("x", encoding="utf-8") as handle:
         json.dump(manifest, handle, indent=2)
@@ -508,14 +527,6 @@ def main():
     if diagnostic:
         print("Diagnostic run complete. Final summary files were not published.")
         return 0
-
-    create_final_summary_csv(
-        aggregated_results, output_path=str(project_root / "results/metrics/final_summary.csv")
-    )
-    results_json_path = project_root / "results/metrics/final_aggregated_results.json"
-    with results_json_path.open("w", encoding="utf-8") as handle:
-        json.dump(manifest, handle, indent=2)
-        handle.write("\n")
     print(f"Saved final aggregated results to {results_json_path}")
     return 0
 
