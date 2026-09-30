@@ -28,3 +28,17 @@ def test_service_with_real_pipeline():
         assert result["answer"]
         assert result["sources"]
         assert result["status"] in {"verified", "unverified", "abstained"}
+
+        focused = client.post("/generate", json={
+            "query": "Where is the Eiffel Tower?",
+            "top_k_retrieve": 3,
+            "top_k_rerank": 2,
+            "evidence_limit": 1,
+            "abstain_if_unanswered": True,
+            "max_new_tokens": 32,
+            "do_sample": False,
+        })
+        assert focused.status_code == 200, focused.text
+        focused_result = focused.json()
+        assert len(focused_result["sources"]) == 1
+        assert focused_result["status"] in {"verified", "unverified", "abstained"}
