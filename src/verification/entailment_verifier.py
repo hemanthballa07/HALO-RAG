@@ -125,6 +125,15 @@ class EntailmentVerifier:
         """Keep text overlap from overriding explicit question constraints."""
         query_words = re.findall(r"\w+", query)
         context_words = cls._normalized_words(context)
+        sentence_words = cls._normalized_words(sentence)
+
+        occurrence = re.fullmatch(
+            r"who\s+does\s+(.+?)\s+occur\s+in\??", query.strip(), re.I
+        )
+        if occurrence and cls._find_words(
+            sentence_words, cls._normalized_words(occurrence.group(1))
+        ) < 0:
+            return False
 
         for location in re.findall(
             r"\bin\s+([A-Z][\w]*(?:\s+[A-Z][\w]*)*)", query
@@ -168,7 +177,6 @@ class EntailmentVerifier:
                 return False
 
         stemmer = PorterStemmer()
-        sentence_words = cls._normalized_words(sentence)
         question_words = cls._normalized_words(query)
         if (len(question_words) >= 6 and question_words[0] == "what"
                 and question_words[2] == "did"):

@@ -73,6 +73,17 @@ def test_shortcut_requires_named_location_in_evidence():
     )
 
 
+def test_shortcut_requires_the_queried_condition():
+    context = "Decompression sickness occurs in divers."
+
+    assert not EntailmentVerifier._answer_sentence_matches_query(
+        "divers", context, "Who does decompression oxygen sickness occur in?"
+    )
+    assert EntailmentVerifier._answer_sentence_matches_query(
+        "divers", context, "Who does decompression sickness occur in?"
+    )
+
+
 def test_evaluator_counts_false_accepts_by_scoring_method():
     class FakeVerifier:
         threshold = 0.75
