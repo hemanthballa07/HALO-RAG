@@ -131,7 +131,8 @@ make check
 
 `make check` performs static checks, compiles every Python module, validates repository
 structure, and runs the lightweight regression and benchmark tests. CI runs the
-same checks on every push and pull request. With the full runtime installed, run
+same checks on Python 3.10, 3.11, and 3.12 for every push and pull request. With
+the full runtime installed, run
 `python -m pytest -q` for the complete local test suite.
 
 ## Repository layout
