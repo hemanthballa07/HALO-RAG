@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from experiments import exp1_baseline as exp1
 from experiments import exp4_revision_strategies as exp4
 from experiments import exp6_iterative_training as exp6
 from experiments import exp7_ablation_study as exp7
@@ -19,6 +20,39 @@ METADATA = {
     "total_queries": 2,
     "seed": 42,
 }
+
+
+def test_baseline_fails_when_a_query_fails(monkeypatch):
+    class FailingPipeline:
+        def __init__(self, **_kwargs):
+            self.claim_extractor = SimpleNamespace(extract_claims=lambda _text: [])
+            self.verifier = SimpleNamespace()
+
+        def generate(self, query, **_kwargs):
+            if query == "second":
+                raise RuntimeError("generation failed")
+            return {
+                "generated_text": "answer",
+                "retrieved_docs": [0],
+                "verification_results": {"verification_results": []},
+            }
+
+    class FakeEvaluator:
+        def compute_all_metrics(self, **_kwargs):
+            return {"f1_score": 1.0}
+
+    monkeypatch.setattr(exp1, "SelfVerificationRAGPipeline", FailingPipeline)
+    monkeypatch.setattr(exp1, "EvaluationMetrics", FakeEvaluator)
+    monkeypatch.setattr(exp1, "resolve_device", lambda _device: "cpu")
+
+    with pytest.raises(RuntimeError, match="Baseline failed to process query 1"):
+        exp1.run_baseline_experiment(
+            queries=["first", "second"],
+            ground_truths=["answer", "answer"],
+            relevant_docs=[[0], [0]],
+            corpus=["answer"],
+            config={"experiments": {"device": "cpu"}},
+        )
 
 
 def test_revision_artifact_keeps_run_metadata(tmp_path, monkeypatch):
