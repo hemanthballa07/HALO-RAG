@@ -96,12 +96,12 @@ def run_threshold_tuning(
         results = []
         all_metrics = []
         
-        for query, gt, rel_docs in tqdm(
+        for idx, (query, gt, rel_docs) in enumerate(tqdm(
             zip(queries, ground_truths, relevant_docs),
             total=len(queries),
             desc=f"τ={threshold}",
             leave=False
-        ):
+        )):
             try:
                 # Generate answer with verification
                 result = pipeline.generate(query, top_k_retrieve=20, top_k_rerank=5)
@@ -126,9 +126,10 @@ def run_threshold_tuning(
                     "generated": result["generated_text"],
                     "metrics": metrics
                 })
-            except Exception as e:
-                print(f"Error processing query: {e}")
-                continue
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Threshold {threshold:g} failed to process query {idx}"
+                ) from exc
         
         # Aggregate metrics
         metric_names = [

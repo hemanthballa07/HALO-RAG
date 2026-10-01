@@ -7,7 +7,9 @@ from types import SimpleNamespace
 import pytest
 
 from experiments import exp1_baseline as exp1
+from experiments import exp3_threshold_tuning as exp3
 from experiments import exp4_revision_strategies as exp4
+from experiments import exp5_self_consistency as exp5
 from experiments import exp6_iterative_training as exp6
 from experiments import exp7_ablation_study as exp7
 from experiments import exp8_stress_test as exp8
@@ -47,6 +49,82 @@ def test_baseline_fails_when_a_query_fails(monkeypatch):
 
     with pytest.raises(RuntimeError, match="Baseline failed to process query 1"):
         exp1.run_baseline_experiment(
+            queries=["first", "second"],
+            ground_truths=["answer", "answer"],
+            relevant_docs=[[0], [0]],
+            corpus=["answer"],
+            config={"experiments": {"device": "cpu"}},
+        )
+
+
+def test_threshold_tuning_fails_when_a_query_fails(monkeypatch):
+    class FailingPipeline:
+        def __init__(self, **_kwargs):
+            pass
+
+        def set_entailment_threshold(self, _threshold):
+            pass
+
+        def generate(self, query, **_kwargs):
+            if query == "second":
+                raise RuntimeError("generation failed")
+            return {
+                "generated_text": "answer",
+                "retrieved_docs": [0],
+                "verification_results": {"verification_results": []},
+            }
+
+    class FakeEvaluator:
+        def compute_all_metrics(self, **_kwargs):
+            return {"f1_score": 1.0}
+
+    monkeypatch.setattr(exp3, "SelfVerificationRAGPipeline", FailingPipeline)
+    monkeypatch.setattr(exp3, "EvaluationMetrics", FakeEvaluator)
+    monkeypatch.setattr(exp3, "resolve_device", lambda _device: "cpu")
+
+    with pytest.raises(RuntimeError, match="Threshold 0.75 failed to process query 1"):
+        exp3.run_threshold_tuning(
+            queries=["first", "second"],
+            ground_truths=["answer", "answer"],
+            relevant_docs=[[0], [0]],
+            corpus=["answer"],
+            config={"experiments": {"device": "cpu"}},
+            thresholds=[0.75],
+        )
+
+
+def test_self_consistency_fails_when_a_query_fails(monkeypatch):
+    class FailingPipeline:
+        def __init__(self, **_kwargs):
+            self.claim_extractor = SimpleNamespace(extract_claims=lambda _text: [])
+            self.verifier = SimpleNamespace(
+                verify_generation=lambda *_args: {"verification_results": []}
+            )
+
+        def generate(self, query, **_kwargs):
+            if query == "second":
+                raise RuntimeError("generation failed")
+            return {
+                "generated_text": "answer",
+                "retrieved_docs": [0],
+                "verification_results": {"verification_results": []},
+            }
+
+    class FakeEvaluator:
+        def compute_all_metrics(self, **_kwargs):
+            return {"f1_score": 1.0}
+
+    monkeypatch.setattr(exp5, "SelfVerificationRAGPipeline", FailingPipeline)
+    monkeypatch.setattr(exp5, "EvaluationMetrics", FakeEvaluator)
+    monkeypatch.setattr(exp5, "resolve_device", lambda _device: "cpu")
+    monkeypatch.setattr(exp5, "generate_with_self_consistency", lambda *_args, **_kwargs: {
+        "final_answer": "answer",
+        "samples": [{"verified_f1": 1.0, "retrieved_texts": []}],
+        "filtered_samples": [{"verified_f1": 1.0, "retrieved_texts": []}],
+    })
+
+    with pytest.raises(RuntimeError, match="Self-consistency failed to process query 1"):
+        exp5.run_self_consistency_experiment(
             queries=["first", "second"],
             ground_truths=["answer", "answer"],
             relevant_docs=[[0], [0]],
