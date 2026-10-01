@@ -126,6 +126,9 @@ class EntailmentVerifier:
         query_words = re.findall(r"\w+", query)
         context_words = cls._normalized_words(context)
         sentence_words = cls._normalized_words(sentence)
+        query_years = {word for word in query_words if re.fullmatch(r"[0-9]{4}", word)}
+        if not query_years.issubset(set(sentence_words)):
+            return False
 
         occurrence = re.fullmatch(
             r"who\s+does\s+(.+?)\s+occur\s+in\??", query.strip(), re.I

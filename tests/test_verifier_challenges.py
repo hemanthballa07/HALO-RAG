@@ -27,8 +27,8 @@ FIXTURE = Path(__file__).resolve().parents[1] / "experiments/fixtures/verifier_c
 def test_challenge_fixture_has_paired_supported_and_unsupported_cases():
     cases = load_challenges(FIXTURE)
 
-    assert len(cases) == 12
-    assert sum(case["supported"] for case in cases) == 6
+    assert len(cases) == 16
+    assert sum(case["supported"] for case in cases) == 8
     assert len({case["id"] for case in cases}) == len(cases)
 
 
@@ -37,6 +37,18 @@ def test_shortcut_respects_question_constraints(case):
     assert EntailmentVerifier._answer_sentence_matches_query(
         case["answer"], case["context"], case["question"]
     ) is case["supported"]
+
+
+def test_year_must_be_in_the_answer_sentence():
+    context = (
+        "In 1756, the British fortified another post. "
+        "In 1755, the British captured Fort Beauséjour."
+    )
+
+    assert not EntailmentVerifier._answer_sentence_matches_query(
+        "Fort Beauséjour", context,
+        "What fort did the British capture in 1756?",
+    )
 
 
 def test_action_guard_does_not_treat_a_following_noun_as_the_action():
