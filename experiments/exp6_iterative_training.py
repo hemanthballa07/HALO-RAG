@@ -35,7 +35,8 @@ from src.pipeline import SelfVerificationRAGPipeline
 from src.generator import FLANT5Generator, QLoRATrainer
 from src.evaluation import EvaluationMetrics
 from src.utils import setup_wandb, log_metrics, log_metadata, get_commit_hash, get_timestamp
-from src.utils.cli import parse_experiment_args
+from src.utils.cli import parse_experiment_args, resolve_sample_limit
+from src.utils.device import qlora_supported, resolve_device
 from datasets import Dataset
 
 
@@ -85,6 +86,12 @@ def collect_verified_training_data(
         factual_precision_threshold=factual_precision_threshold,
         top_k_passages=top_k_passages
     )
+
+    if not verified_examples:
+        raise RuntimeError(
+            f"Iteration {iteration} collected no verified training examples "
+            f"at factual precision threshold {factual_precision_threshold}"
+        )
     
     # Save to JSONL
     output_path = os.path.join(output_dir, f"train_iter{iteration}.jsonl")
@@ -131,7 +138,11 @@ def fine_tune_iteration(
     answers = [ex["verified_answer"] for ex in verified_examples]
     
     # Initialize generator (for tokenizer and model setup)
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = resolve_device(config.get("experiments", {}).get("device", "auto"))
+    if not qlora_supported(device):
+        raise RuntimeError(
+            "Experiment 6 requires a CUDA device and bitsandbytes for QLoRA training."
+        )
     
     # Load previous checkpoint if available (for iterative training)
     generator = FLANT5Generator(
@@ -202,16 +213,17 @@ def fine_tune_iteration(
     )
     
     # Tokenize targets (answers)
-    with generator.tokenizer.as_target_tokenizer():
-        labels = generator.tokenizer(
-            answers,
-            max_length=config.get("generation", {}).get("max_length", 512),
-            padding=True,
-            truncation=True,
-            return_tensors="pt"
-        )
+    labels = generator.tokenizer(
+        text_target=answers,
+        max_length=config.get("generation", {}).get("max_length", 512),
+        padding=True,
+        truncation=True,
+        return_tensors="pt"
+    )
     
-    model_inputs["labels"] = labels["input_ids"]
+    label_ids = labels["input_ids"]
+    label_ids[label_ids == generator.tokenizer.pad_token_id] = -100
+    model_inputs["labels"] = label_ids
     
     # Convert to dataset
     train_dataset = Dataset.from_dict({
@@ -254,7 +266,7 @@ def fine_tune_iteration(
         logging_steps=int(training_config.get("logging_steps", 100)),
         save_strategy="epoch",
         save_total_limit=3,
-        fp16=True,
+        fp16=device.startswith("cuda"),
         report_to="wandb" if wandb_enabled else "none",
         run_name=f"exp6_iter{iteration}"
     )
@@ -405,7 +417,8 @@ def run_iterative_training(
     np.random.seed(seed)
     torch.manual_seed(seed)
     
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = resolve_device(config.get("experiments", {}).get("device", "auto"))
+    use_qlora = qlora_supported(device)
     
     # Initialize evaluator
     evaluator = EvaluationMetrics()
@@ -462,7 +475,7 @@ def run_iterative_training(
                 corpus=corpus,
                 device=device,
                 enable_revision=False,
-                use_qlora=True,
+                use_qlora=use_qlora,
                 generator_lora_checkpoint=checkpoint_path
             )
         else:
@@ -483,7 +496,7 @@ def run_iterative_training(
                         corpus=corpus,
                         device=device,
                         enable_revision=False,
-                        use_qlora=True,
+                        use_qlora=use_qlora,
                         generator_lora_checkpoint=prev_checkpoint
                     )
                 else:
@@ -504,10 +517,6 @@ def run_iterative_training(
             iteration=iteration,
             config=config
         )
-        
-        if not verified_examples:
-            logger.warning(f"No verified data collected for iteration {iteration}. Skipping fine-tuning.")
-            continue
         
         # Fine-tune
         verified_data_path = f"data/verified/train_iter{iteration}.jsonl"
@@ -531,7 +540,7 @@ def run_iterative_training(
             corpus=corpus,
             device=device,
             enable_revision=False,
-            use_qlora=True,
+            use_qlora=use_qlora,
             generator_lora_checkpoint=checkpoint_path
         )
         
@@ -684,7 +693,14 @@ def main():
     parser.add_argument("--iterations", type=int, default=None, help="Number of iterations")
     parser.add_argument("--limit", type=int, default=None, help="Limit number of examples")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
-    parser.add_argument("--dry-run", action="store_true", help="Dry run with ≤100 examples")
+    parser.add_argument(
+        "--split",
+        choices=["validation"],
+        default="validation",
+        help="Evaluation split; training always uses the train split",
+    )
+    parser.add_argument("--dry-run", action="store_true",
+                        help="Cap training and validation at 100 examples each")
     parser.add_argument("--no-wandb", action="store_true", help="Disable W&B logging")
     
     args = parser.parse_args()
@@ -706,22 +722,32 @@ def main():
     iterations = args.iterations
     if iterations is None:
         iterations = config.get("experiments", {}).get("exp6", {}).get("iterations", 3)
+    if isinstance(iterations, bool) or not isinstance(iterations, int) or iterations < 0:
+        parser.error("--iterations must be a nonnegative integer")
+    device = resolve_device(config.get("experiments", {}).get("device", "auto"))
+    if iterations > 0 and not qlora_supported(device):
+        raise RuntimeError(
+            "Experiment 6 requires a CUDA device and bitsandbytes for QLoRA training."
+        )
     
-    # Determine training limit (ONLY from exp6.train_limit config)
-    train_limit = config.get("experiments", {}).get("exp6", {}).get("train_limit")
-    if train_limit:
+    # The validation --limit does not affect training, but dry runs cap both splits.
+    train_limit = resolve_sample_limit(
+        config.get("experiments", {}).get("exp6", {}).get("train_limit"),
+        args.dry_run, 100,
+    )
+    if args.dry_run:
+        print(f"Dry-run mode: limiting training to {train_limit} examples")
+    elif train_limit:
         print(f"Training limit from config: {train_limit} examples")
     else:
         print("No training limit specified - using full training set")
     
     # Determine validation limit (from --limit arg, --dry-run, or datasets.sample_limit config)
-    val_limit = args.limit  # --limit controls evaluation/validation size
+    val_limit = resolve_sample_limit(
+        args.limit, args.dry_run, 100, config.get("datasets", {}).get("sample_limit")
+    )
     if args.dry_run:
-        val_limit = 100
-        print("⚠ DRY RUN MODE: Using 100 validation samples")
-    elif val_limit is None:
-        # Fall back to datasets.sample_limit config if --limit not provided
-        val_limit = config.get("datasets", {}).get("sample_limit")
+        print(f"⚠ DRY RUN MODE: Using {val_limit} validation samples")
     
     # Load datasets
     print("Loading datasets...")
@@ -734,7 +760,7 @@ def main():
     )
     val_examples = load_dataset_from_config(
         config,
-        split="validation",
+        split=args.split,
         limit=val_limit
     )
     
@@ -752,7 +778,8 @@ def main():
     # Apply training limit (only to training split)
     if train_limit:
         train_examples = train_examples[:train_limit]
-        print(f"Limited training to {len(train_examples)} examples (from exp6.train_limit config)")
+        source = "dry-run cap" if args.dry_run else "exp6.train_limit config"
+        print(f"Limited training to {len(train_examples)} examples (from {source})")
     
     # Apply validation limit (only to validation split, if specified)
     if val_limit:
@@ -767,8 +794,19 @@ def main():
         print(f"Using full validation set: {len(val_examples)} examples")
             
     # Prepare for experiments
-    train_queries, train_ground_truths, train_relevant_docs, corpus = prepare_for_experiments(train_examples)
-    val_queries, val_ground_truths, val_relevant_docs, _ = prepare_for_experiments(val_examples)
+    # Both splits need document IDs in the same retrieval corpus. Preparing them
+    # independently would make validation IDs point at the wrong documents.
+    combined_examples = train_examples + val_examples
+    all_queries, all_ground_truths, all_relevant_docs, corpus = prepare_for_experiments(
+        combined_examples
+    )
+    split_index = len(train_examples)
+    train_queries = all_queries[:split_index]
+    train_ground_truths = all_ground_truths[:split_index]
+    train_relevant_docs = all_relevant_docs[:split_index]
+    val_queries = all_queries[split_index:]
+    val_ground_truths = all_ground_truths[split_index:]
+    val_relevant_docs = all_relevant_docs[split_index:]
     
     print(f"Train: {len(train_queries)} queries")
     print(f"Validation: {len(val_queries)} queries")
@@ -824,6 +862,9 @@ def main():
     # Add metadata to results
     results["metadata"] = {
         "dataset": dataset_name,
+        "split": args.split,
+        "sample_limit": val_limit,
+        "total_queries": len(val_queries),
         "iterations": iterations,
         "train_limit": train_limit,
         "val_limit": val_limit,
@@ -857,23 +898,28 @@ def main():
         fp = metrics.get("factual_precision", 0)
         print(f"{iteration:<12} {hr:<20.4f} {vf1:<15.4f} {f1:<15.4f} {fp:<15.4f}")
     
-    # Check acceptance criteria
-    print("\n" + "=" * 70)
-    print("Acceptance Criteria Check:")
-    print("=" * 70)
-    
-    baseline_hr = iteration_results[0]["metrics"].get("hallucination_rate", 0)
-    final_hr = iteration_results[iterations[-1]]["metrics"].get("hallucination_rate", 0)
-    hr_reduction = ((baseline_hr - final_hr) / baseline_hr * 100) if baseline_hr > 0 else 0
-    
-    baseline_vf1 = iteration_results[0]["metrics"].get("verified_f1", 0)
-    final_vf1 = iteration_results[iterations[-1]]["metrics"].get("verified_f1", 0)
-    vf1_improvement = final_vf1 - baseline_vf1
-    
-    print(f"Hallucination Rate reduction: {hr_reduction:.2f}% ({'✓' if hr_reduction >= 10 else '✗'} target: ≥10% per iteration)")
-    print(f"Verified F1 improvement: {vf1_improvement:.4f} ({'✓' if vf1_improvement > 0 else '✗'} target: >0)")
-    print(f"Final Hallucination Rate: {final_hr:.4f} ({'✓' if final_hr <= 0.10 else '✗'} target: ≤0.10)")
-    print("=" * 70)
+    if iterations[-1] == 0:
+        if results["total_iterations"] == 0:
+            print("\nAcceptance criteria are not evaluated for a baseline-only run.")
+        else:
+            print("\nNo training iteration completed; acceptance criteria cannot be evaluated.")
+    else:
+        print("\n" + "=" * 70)
+        print("Acceptance Criteria Check:")
+        print("=" * 70)
+
+        baseline_hr = iteration_results[0]["metrics"].get("hallucination_rate", 0)
+        final_hr = iteration_results[iterations[-1]]["metrics"].get("hallucination_rate", 0)
+        hr_reduction = ((baseline_hr - final_hr) / baseline_hr * 100) if baseline_hr > 0 else 0
+
+        baseline_vf1 = iteration_results[0]["metrics"].get("verified_f1", 0)
+        final_vf1 = iteration_results[iterations[-1]]["metrics"].get("verified_f1", 0)
+        vf1_improvement = final_vf1 - baseline_vf1
+
+        print(f"Hallucination Rate reduction: {hr_reduction:.2f}% ({'✓' if hr_reduction >= 10 else '✗'} target: ≥10% per iteration)")
+        print(f"Verified F1 improvement: {vf1_improvement:.4f} ({'✓' if vf1_improvement > 0 else '✗'} target: >0)")
+        print(f"Final Hallucination Rate: {final_hr:.4f} ({'✓' if final_hr <= 0.10 else '✗'} target: ≤0.10)")
+        print("=" * 70)
     
     # Close W&B run
     if wandb_run:

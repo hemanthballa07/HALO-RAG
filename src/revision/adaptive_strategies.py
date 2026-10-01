@@ -35,6 +35,8 @@ class AdaptiveRevisionStrategy:
             strategy_selection_mode: "dynamic" (based on entailment rate) or "fixed" (use specific strategy)
             fixed_strategy: Strategy to use if mode is "fixed" (e.g., "re_retrieval", "constrained_generation", "claim_by_claim")
         """
+        if max_iterations < 0:
+            raise ValueError("max_iterations cannot be negative")
         self.max_iterations = max_iterations
         self.strategy_selection_mode = strategy_selection_mode
         self.fixed_strategy = fixed_strategy
@@ -65,7 +67,8 @@ class AdaptiveRevisionStrategy:
         verification_fn,
         claim_extractor_fn,
         iteration: int = 0,
-        top_k_retrieve: int = 20
+        top_k_retrieve: int = 20,
+        max_iterations: Optional[int] = None
     ) -> Tuple[str, Dict[str, Any], Dict[str, Any]]:
         """
         Apply adaptive revision strategies.
@@ -86,13 +89,17 @@ class AdaptiveRevisionStrategy:
             verification_fn: Function to verify claims (checks entailment against contexts)
             claim_extractor_fn: Function to extract claims from text
             iteration: Current iteration number
+            max_iterations: Per-request revision limit, if different from the configured limit
         
         Returns:
             Tuple of (revised_generation, new_verification_results, strategy_metadata)
             strategy_metadata contains: strategy_name, prompt_used, expanded_query (if applicable),
             verified_claims (if applicable), claim_queries (if applicable)
         """
-        if iteration >= self.max_iterations:
+        effective_max_iterations = self.max_iterations if max_iterations is None else max_iterations
+        if effective_max_iterations < 0:
+            raise ValueError("max_iterations cannot be negative")
+        if iteration >= effective_max_iterations:
             return initial_generation, verification_results, {"strategy_name": "none", "prompt_used": None}
         
         # Check if verification passed
@@ -219,6 +226,8 @@ class AdaptiveRevisionStrategy:
             "expanded_query": expanded_query,
             "original_query": query,
             "failed_claims_used": failed_claims[:2] if failed_claims else [],
+            "document_ids": [ctx[0] for ctx in new_contexts],
+            "evidence_contexts": [ctx[1] for ctx in new_contexts],
             # Log context information for clarity
             "contexts_used": [ctx[1][:200] + "..." if len(ctx[1]) > 200 else ctx[1] for ctx in new_contexts[:5]],  # First 5 contexts, truncated
             "num_contexts_retrieved": len(new_contexts),
@@ -284,6 +293,8 @@ class AdaptiveRevisionStrategy:
             "verified_claims": verified_claims,
             "original_query": query,
             "num_verified_claims_used": len(verified_claims),
+            "document_ids": [ctx[0] for ctx in contexts],
+            "evidence_contexts": [ctx[1] for ctx in contexts],
             "contexts_used": [ctx[1][:200] + "..." if len(ctx[1]) > 200 else ctx[1] for ctx in contexts[:5]],  # First 5 contexts, truncated
             "num_contexts": len(contexts),
             "constraint_summary": f"Generated with {len(verified_claims)} verified claim(s) as constraints: {', '.join(verified_claims[:3])}"
@@ -376,10 +387,11 @@ class AdaptiveRevisionStrategy:
             "claim_replacements": claim_replacements,  # What each unverified claim was replaced with
             "num_unverified_claims": len(unverified_claims),
             "num_verified_claims_preserved": len(verified_claims),
+            "document_ids": [ctx[0] for ctx in contexts],
+            "evidence_contexts": [ctx[1] for ctx in contexts],
             "contexts_used": [ctx[1][:200] + "..." if len(ctx[1]) > 200 else ctx[1] for ctx in contexts[:5]],  # First 5 contexts, truncated
             "num_contexts": len(contexts),
             "replacement_summary": f"Regenerated {len(unverified_claims)} unverified claim(s), preserved {len(verified_claims)} verified claim(s)"
         }
         
         return revised_generation, new_verification, strategy_metadata
-

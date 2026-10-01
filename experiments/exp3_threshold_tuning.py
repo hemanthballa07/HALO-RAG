@@ -28,7 +28,8 @@ from src.data import load_dataset_from_config, prepare_for_experiments
 from src.pipeline import SelfVerificationRAGPipeline
 from src.evaluation import EvaluationMetrics
 from src.utils import setup_wandb, log_metrics, log_metadata, get_commit_hash, get_timestamp
-from src.utils.cli import parse_experiment_args
+from src.utils.cli import parse_experiment_args, resolve_sample_limit
+from src.utils.device import resolve_device
 
 
 def load_config(config_path: str = "config/config.yaml"):
@@ -69,7 +70,7 @@ def run_threshold_tuning(
     np.random.seed(seed)
     torch.manual_seed(seed)
     
-    device = "cuda"
+    device = resolve_device(config.get("experiments", {}).get("device", "auto"))
     print(f"Using device: {device}")
     
     # Initialize pipeline (will be updated with different thresholds)
@@ -140,13 +141,13 @@ def run_threshold_tuning(
             if all_metrics and metric_name in all_metrics[0]:
                 scores = [m[metric_name] for m in all_metrics if metric_name in m]
                 if scores:
-            aggregated[metric_name] = {
+                    aggregated[metric_name] = {
                         "mean": float(np.mean(scores)),
                         "std": float(np.std(scores)),
                         "min": float(np.min(scores)),
                         "max": float(np.max(scores)),
-                "scores": scores
-            }
+                        "scores": scores
+                    }
         
         threshold_results[threshold] = {
             "aggregated_metrics": aggregated,
@@ -365,16 +366,15 @@ def main():
     thresholds = config.get("verification", {}).get("threshold_sweep", [0.5, 0.6, 0.7, 0.75, 0.8, 0.85, 0.9])
     
     # Determine sample limit
-    sample_limit = args.limit
+    sample_limit = resolve_sample_limit(
+        args.limit, args.dry_run, 30, config.get("datasets", {}).get("sample_limit")
+    )
     if args.dry_run:
-        sample_limit = 30
-        print("⚠ DRY RUN MODE: Using 30 samples")
-    elif sample_limit is None:
-        sample_limit = config.get("datasets", {}).get("sample_limit")
+        print(f"⚠ DRY RUN MODE: Using {sample_limit} samples")
     
     # Load dataset
     print("Loading dataset...")
-    examples = load_dataset_from_config(config, split=args.split)
+    examples = load_dataset_from_config(config, split=args.split, limit=sample_limit)
     
     # Apply sample limit if specified
     if sample_limit:

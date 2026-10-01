@@ -1,233 +1,82 @@
-# HALO-RAG: Next Steps for Final Submission
+# Release checklist
 
-## Current Status
+## Before the full experiment run
 
-✅ **All core components implemented** (95% complete)
-✅ **All 8 experiments implemented** (Exp1-8)
-✅ **Human evaluation workflow implemented**
-✅ **Finalization scripts created**
+1. Independently review the four current-protocol focused cases in
+   `results/human_eval/focused_false_accepts_current_protocol.csv`. Judge
+   whether each answer addresses the question and is supported by its retrieved
+   passage. Keep those judgments separate from the SQuAD v2 answerability
+   label. Once every row is labeled, run `experiments/score_benchmark_review.py`
+   as shown in `results/human_eval/README.md`. The older 24-case sheet at
+   `results/human_eval/focused_seed2026_2027_review.csv` is a separate review
+   from earlier runs. Do not combine its judgments with the current protocol.
+2. Use confirmed unsupported answers to improve verification beyond lexical
+   co-occurrence. The current three-seed diagnostic has four verified answers
+   on 30 source-unanswerable focused questions; these are not yet confirmed
+   evidence failures. Add regression cases from adjudicated errors, then
+   evaluate on new seeds and another dataset without tuning to test cases.
+3. Repeat the experiment matrix on the target CUDA host after choosing a
+   setting. The CPU runs are useful checks, not release results.
 
-## Immediate Next Steps
-
-### 1. Run Official Experiments (REQUIRED)
-
-Run all experiments with fixed seeds and aggregate results:
-
-```bash
-# Run Exp1-8 with seeds {42, 123, 456}
-python3 experiments/run_final_experiments.py \
-    --seeds 42 123 456 \
-    --split validation \
-    --copy-plots
-
-# If you want to test first with dry-run:
-python3 experiments/run_final_experiments.py \
-    --seeds 42 123 456 \
-    --split validation \
-    --dry-run \
-    --copy-plots
-```
-
-**Expected Outputs**:
-- `results/metrics/final_summary.csv` (mean ± sd for all metrics)
-- `results/figures/final/` (6 key plots)
-- `results/metrics/final_aggregated_results.json`
-
-**Pass/Fail Gates**:
-- [ ] `results/metrics/final_summary.csv` exists with mean ± sd for all metrics
-- [ ] 6 plots in `results/figures/final/`:
-  - [ ] `retrieval_bars.png`
-  - [ ] `tau_sweep.png`
-  - [ ] `decoding_comparison.png`
-  - [ ] `iteration_curves.png`
-  - [ ] `pareto_frontier.png`
-  - [ ] `ablation_bars.png`
-
-### 2. Create RESULTS_LOCK.md (REQUIRED)
-
-Generate reproducibility document:
+## 1. Validate the environment
 
 ```bash
-python3 scripts/create_results_lock.py \
-    --tau 0.75 \
-    --seeds 42 123 456 \
-    --dataset squad_v2 \
-    --split validation
+python scripts/check_setup.py
+make check
 ```
 
-**Pass/Fail Gates**:
-- [ ] `RESULTS_LOCK.md` includes:
-  - [ ] Dataset/split, τ, seeds, commit hash
-  - [ ] FAISS index metadata
-  - [ ] Verified data snapshot paths
-  - [ ] Run timestamps
+For QLoRA training, install `requirements-gpu.txt` on a compatible CUDA host and confirm
+that `bitsandbytes` imports successfully.
 
-### 3. Build Wikipedia Index Probe (OPTIONAL but recommended)
-
-If compute allows, build a small probe:
+## 2. Run a smoke experiment
 
 ```bash
-python3 scripts/build_wiki_index_probe.py --num-passages 300000
+python experiments/exp1_baseline.py --limit 10 --no-wandb
 ```
 
-**Expected Outputs**:
-- `data/wiki_index_probe.bin`
-- `data/INDEX_METADATA.json`
-- `results/metrics/wiki_index_probe.json`
+Confirm that the model and dataset caches have sufficient free space before starting the
+full matrix.
 
-**Check**:
-- [ ] `data/INDEX_METADATA.json` present (encoder, dims, n_docs, build time)
-- [ ] `results/metrics/wiki_index_probe.json` shows sensible Recall@20 / NDCG@10
-
-**Note**: If probe is slow or low recall, mention as "future work" in report (acceptable).
-
-### 4. Generate Presentation & Report Content (REQUIRED)
-
-Generate content from final metrics/figures:
+## 3. Run the experiment matrix
 
 ```bash
-# Generate presentation content
-python3 scripts/generate_presentation.py
-
-# Generate report content
-python3 scripts/generate_final_report.py
+python experiments/run_final_experiments.py \
+  --seeds 42 123 456 \
+  --split validation \
+  --copy-plots
 ```
 
-**Expected Outputs**:
-- `report/presentation_content.md` (12 slides + quiz)
-- `report/final_report.md` (NeurIPS-style text)
+The runner returns a nonzero status if an experiment fails, skips queries, or does
+not produce a fresh metrics artifact. It archives each seed's JSON and writes a
+manifest. Diagnostic and incomplete runs do not publish final summary files.
+Check the manifest before reporting results.
 
-### 5. Convert to Submission Formats (REQUIRED)
+## 4. Complete human evaluation
 
-**Option A: Using Pandoc** (if available):
 ```bash
-# Convert to PPTX
-pandoc report/presentation_content.md -o report/final_presentation.pptx
-
-# Convert to PDF
-pandoc report/final_report.md -o report/final_report.pdf
+python experiments/generate_human_eval_samples.py --num-samples 100 --split validation
+python experiments/score_human_eval.py --csv results/human_eval/human_eval_samples.csv
 ```
 
-**Option B: Manual** (if no Pandoc):
-- Open `.md` files in editor
-- Copy content to Google Slides/Docs
-- Export as PPTX/PDF
+The scoring command should be run only after annotators fill the human-label column.
 
-**Expected Outputs**:
-- [ ] `report/final_presentation.pptx` (12 slides + quiz)
-- [ ] `report/final_report.pdf` (9 pages, NeurIPS style)
+## 5. Record reproducibility information
 
-### 6. Final Quality Pass (REQUIRED)
-
-Open `results/metrics/final_summary.csv` and verify headline targets:
-
-**Retrieval**:
-- [ ] Recall@20 ≥ 0.95
-- [ ] Coverage ≥ 0.90
-
-**Verification**:
-- [ ] Factual Precision ≥ 0.90
-- [ ] Hallucination Rate ≤ 0.10
-
-**Composite**:
-- [ ] Verified F1 shows ≥ +20% over baseline
-
-**Human Eval**:
-- [ ] Agreement ≥ 0.85
-- [ ] Cohen's κ ≥ 0.70
-
-**Exp5**:
-- [ ] Self-consistency reduces hallucination ≥ 15%
-
-**Exp6**:
-- [ ] Iteration curves show hallucination ↓, Verified F1 ↑ each round
-
-**Note**: If any miss slightly, explain trade-offs in report and show the trend (you still get credit for analysis).
-
-### 7. Package Repository for Submission (REQUIRED)
-
-**Update README**:
-- Add 1-2 sentences summarizing improvements
-- Link to `final_summary.csv`
-
-**Update Documentation**:
-- [ ] `IMPLEMENTATION_STATUS.md` → mark "Complete"
-- [ ] `EXPERIMENTS_INTEGRATION_SUMMARY.md` → includes Exp7-8
-
-**Add Files** (if missing):
-- [ ] `LICENSE` (MIT)
-- [ ] `CITATION.cff` (optional)
-
-**Git Operations**:
 ```bash
-# Merge to main
-git checkout main
-git pull
-git merge feat/data-loading
-
-# Tag release
-git tag -a v1.0.0 -m "HALO-RAG final release — Exp1–8 + Human Eval complete; results locked"
-git push origin v1.0.0
+python scripts/create_results_lock.py \
+  --manifest results/metrics/final_runs/RUN_ID/manifest.json
 ```
 
-**Create GitHub Release**:
-- Tag: `v1.0.0`
-- Attach:
-  - [ ] `report/final_presentation.pptx`
-  - [ ] `report/final_report.pdf`
-  - [ ] `results/metrics/final_summary.csv`
-  - [ ] `results/figures/final/` (zip the folder)
+Use the path printed by a completed full runner invocation. The lock command
+checks all eight experiments, three or more distinct seeds, each archived JSON,
+the configuration, and the published aggregate and summary. It refuses an
+incomplete run or an existing `RESULTS_LOCK.md`. The lock covers experiment
+artifacts only; human evaluation remains a separate release requirement.
 
-### 8. Share Group Update
+## 6. Release review
 
-**Template**:
-```
-HALO-RAG — Finalization Plan
-✅ Final run scripts ready; reproducibility lock & report/deck generators added.
-▶️ I'll run Exp1–8 across seeds {42,123,456}, create final_summary.csv, copy plots to results/figures/final/, and generate RESULTS_LOCK.md.
-📊 Then I'll export the deck (12 slides + quiz) and report (PDF).
-🔖 We'll tag v1.0.0 and publish a GitHub Release with artifacts.
-If compute is available, I'll also run the Wikipedia index probe and include its metrics.
-```
-
-### 9. After Artifacts Are Produced
-
-Once you have `final_summary.csv`, share the headline numbers and I'll help craft:
-- 1-slide executive summary
-- Quiz question + answer for class
-- Tight abstract for report front page
-
-## Quick Checklist
-
-- [ ] Run `experiments/run_final_experiments.py` with seeds {42, 123, 456}
-- [ ] Verify `results/metrics/final_summary.csv` exists
-- [ ] Verify 6 plots in `results/figures/final/`
-- [ ] Run `scripts/create_results_lock.py`
-- [ ] Verify `RESULTS_LOCK.md` exists
-- [ ] (Optional) Run `scripts/build_wiki_index_probe.py`
-- [ ] Run `scripts/generate_presentation.py`
-- [ ] Run `scripts/generate_final_report.py`
-- [ ] Convert markdown to PPTX/PDF
-- [ ] Verify all headline targets in `final_summary.csv`
-- [ ] Update README and documentation
-- [ ] Tag release: `git tag -a v1.0.0`
-- [ ] Create GitHub Release with artifacts
-
-## Estimated Time
-
-- Running experiments: 2-4 hours (depends on dataset size and hardware)
-- Generating outputs: 30 minutes
-- Conversion to PPTX/PDF: 30 minutes
-- Verification and packaging: 30 minutes
-- **Total: 3-5 hours**
-
-## Notes
-
-- All scripts are ready and functional
-- Experiments can be run individually if one fails
-- Dry-run mode available for quick testing
-- W&B logging is optional (use `--no-wandb` flag)
-
----
-*Last updated: {get_timestamp()}*
-
+- Inspect every generated plot and summary table.
+- Confirm that no credentials, model caches, datasets, or checkpoints are staged.
+- Re-run `make check` from a clean checkout.
+- Document missed metric targets as results, not as implementation failures.
+- Tag a release only after the experiment and human-evaluation artifacts are complete.

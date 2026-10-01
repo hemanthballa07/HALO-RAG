@@ -4,10 +4,12 @@ Hybrid Retrieval Module: FAISS (dense) + BM25 (sparse) fusion
 
 import numpy as np
 import faiss
+import sys
+import torch
 from rank_bm25 import BM25Okapi
 from sentence_transformers import SentenceTransformer
 from typing import List, Dict, Tuple, Optional
-import torch
+from src.utils.device import resolve_device
 
 
 class HybridRetriever:
@@ -21,7 +23,7 @@ class HybridRetriever:
         dense_model_name: str = "sentence-transformers/all-mpnet-base-v2",
         dense_weight: float = 0.6,
         sparse_weight: float = 0.4,
-        device: str = "cuda",
+        device: str = "auto",
         index_type: str = "faiss"
     ):
         """
@@ -34,12 +36,20 @@ class HybridRetriever:
             device: Device to run models on
             index_type: Type of dense index ("faiss")
         """
+        device = resolve_device(device)
+        if device == "cpu" and sys.platform == "darwin" and torch.get_num_threads() != 1:
+            # FAISS and PyTorch can load competing OpenMP runtimes on macOS.
+            # Keep the CPU pipeline on one thread to avoid native crashes.
+            torch.set_num_threads(1)
         self.dense_weight = dense_weight
         self.sparse_weight = sparse_weight
         
         # Initialize dense retriever
         self.dense_model = SentenceTransformer(dense_model_name, device=device)
-        self.embedding_dim = self.dense_model.get_sentence_embedding_dimension()
+        get_dimension = getattr(self.dense_model, "get_embedding_dimension", None)
+        if get_dimension is None:
+            get_dimension = self.dense_model.get_sentence_embedding_dimension
+        self.embedding_dim = get_dimension()
         self.device = device
         
         # Initialize sparse retriever (BM25)
@@ -50,7 +60,7 @@ class HybridRetriever:
         self.faiss_index = None
         self.corpus = None
         self.corpus_embeddings = None
-        
+
     def build_index(self, corpus: List[str], tokenize_corpus: bool = True):
         """
         Build both dense and sparse indices.
@@ -59,6 +69,8 @@ class HybridRetriever:
             corpus: List of documents to index
             tokenize_corpus: Whether to tokenize for BM25
         """
+        if not corpus:
+            raise ValueError("Corpus must contain at least one document.")
         self.corpus = corpus
         
         # Build dense index (FAISS)
@@ -104,6 +116,10 @@ class HybridRetriever:
         """
         if self.faiss_index is None or self.bm25 is None:
             raise ValueError("Index not built. Call build_index() first.")
+        if top_k <= 0:
+            return []
+
+        top_k = min(top_k, len(self.corpus))
         
         # Dense retrieval
         query_embedding = self.dense_model.encode(
@@ -127,14 +143,17 @@ class HybridRetriever:
         
         # Create full corpus-sized arrays for fusion
         corpus_size = len(self.corpus)
-        dense_scores_full = np.zeros(corpus_size)
-        dense_scores_full[dense_indices] = dense_scores
-        
-        # Normalize dense scores to [0, 1]
+        dense_scores_norm = np.zeros(corpus_size)
+
+        # Normalize retrieved dense candidates to [0, 1]. Non-candidates keep a
+        # zero contribution even when all raw cosine scores are negative.
         if dense_scores.max() > dense_scores.min():
-            dense_scores_norm = (dense_scores_full - dense_scores_full.min()) / (dense_scores_full.max() - dense_scores_full.min() + 1e-8)
+            candidate_scores = (dense_scores - dense_scores.min()) / (
+                dense_scores.max() - dense_scores.min() + 1e-8
+            )
         else:
-            dense_scores_norm = dense_scores_full
+            candidate_scores = np.ones_like(dense_scores)
+        dense_scores_norm[dense_indices] = candidate_scores
         
         # Normalize BM25 scores to [0, 1]
         if bm25_scores.max() > bm25_scores.min():
@@ -148,8 +167,7 @@ class HybridRetriever:
             self.sparse_weight * bm25_scores_norm
         )
         
-        # Get top-k by fusion score (limit to corpus size)
-        top_k = min(top_k, len(self.corpus))
+        # Get top-k by fusion score.
         top_indices = np.argsort(fusion_scores)[::-1][:top_k]
         
         results = []
@@ -168,6 +186,12 @@ class HybridRetriever:
         top_k: int = 20
     ) -> List[Tuple[int, str]]:
         """Retrieve using only dense retrieval."""
+        if self.faiss_index is None or self.corpus is None:
+            raise ValueError("Index not built. Call build_index() first.")
+        if top_k <= 0:
+            return []
+        top_k = min(top_k, len(self.corpus))
+
         query_embedding = self.dense_model.encode(
             query,
             convert_to_numpy=True,
@@ -195,6 +219,12 @@ class HybridRetriever:
         top_k: int = 20
     ) -> List[Tuple[int, str]]:
         """Retrieve using only sparse retrieval."""
+        if self.bm25 is None or self.corpus is None:
+            raise ValueError("Index not built. Call build_index() first.")
+        if top_k <= 0:
+            return []
+        top_k = min(top_k, len(self.corpus))
+
         query_tokenized = query.lower().split()
         bm25_scores = self.bm25.get_scores(query_tokenized)
         
@@ -207,4 +237,3 @@ class HybridRetriever:
             results.append((doc_id, doc))
         
         return results
-

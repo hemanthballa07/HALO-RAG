@@ -1,20 +1,13 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-# Setup script for downloading and preparing data
+HALO_PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+HALO_PYTHON_BIN="${HALO_PYTHON_BIN:-python3}"
 
-echo "Setting up data for Self-Verification RAG project..."
+cd "$HALO_PROJECT_ROOT"
+mkdir -p data results/metrics results/figures checkpoints logs
 
-# Create data directory
-mkdir -p data
+"$HALO_PYTHON_BIN" -m spacy download en_core_web_sm
 
-# Download spaCy model
-echo "Downloading spaCy model..."
-python -m spacy download en_core_web_sm
-
-# TODO: Add dataset download commands
-# For example:
-# wget https://example.com/dataset.zip -O data/dataset.zip
-# unzip data/dataset.zip -d data/
-
-echo "Data setup complete!"
-
+echo "Local directories and the spaCy model are ready."
+echo "Configured Hugging Face datasets will download on the first experiment run."

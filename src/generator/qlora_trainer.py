@@ -93,16 +93,17 @@ class QLoRATrainer:
         )
         
         # Tokenize targets (answers)
-        with self.tokenizer.as_target_tokenizer():
-            labels = self.tokenizer(
-                answers,
-                max_length=max_length,
-                padding=True,
-                truncation=True,
-                return_tensors="pt"
-            )
+        labels = self.tokenizer(
+            text_target=answers,
+            max_length=max_length,
+            padding=True,
+            truncation=True,
+            return_tensors="pt"
+        )
         
-        model_inputs["labels"] = labels["input_ids"]
+        label_ids = labels["input_ids"]
+        label_ids[label_ids == self.tokenizer.pad_token_id] = -100
+        model_inputs["labels"] = label_ids
         
         # Convert to dataset
         dataset = Dataset.from_dict({
@@ -167,8 +168,8 @@ class QLoRATrainer:
             save_total_limit=3,
             load_best_model_at_end=True if eval_dataset else False,
             metric_for_best_model="eval_loss" if eval_dataset else None,
-            fp16=True,
-            report_to="wandb" if os.getenv("WANDB_API_KEY") else None,
+            fp16=torch.cuda.is_available(),
+            report_to="wandb" if os.getenv("WANDB_API_KEY") else "none",
             run_name="flant5_qlora_rag"
         )
         
@@ -195,4 +196,3 @@ class QLoRATrainer:
         """Save LoRA checkpoint."""
         self.model.save_pretrained(path)
         self.tokenizer.save_pretrained(path)
-

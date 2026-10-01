@@ -29,6 +29,8 @@ from src.verification import EntailmentVerifier, ClaimExtractor
 from src.verification.lexical_verifier import LexicalOverlapVerifier
 from src.evaluation import EvaluationMetrics
 from src.utils import setup_wandb, log_metrics, log_metadata, get_commit_hash, get_timestamp
+from src.utils.device import resolve_device
+from src.utils.cli import resolve_sample_limit
 
 
 def load_config(config_path: str = "config/config.yaml"):
@@ -207,7 +209,7 @@ def run_ablation_study(
     np.random.seed(seed)
     torch.manual_seed(seed)
     
-    device = "cuda"
+    device = resolve_device(config.get("experiments", {}).get("device", "auto"))
     print(f"Using device: {device}")
     
     # Limit examples if specified
@@ -305,9 +307,10 @@ def run_ablation_study(
                     "metrics": metrics
                 })
                 
-            except Exception as e:
-                print(f"Error processing query {idx} in {variant_name}: {e}")
-                continue
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Failed to process query {idx} in {variant_name}"
+                ) from exc
         
         all_results[variant_name] = results
         all_metrics[variant_name] = metrics_list
@@ -389,7 +392,8 @@ def run_ablation_study(
     }
 
 
-def save_results(results: Dict[str, Any], output_dir: str = "results/metrics"):
+def save_results(results: Dict[str, Any], metadata: Dict[str, Any],
+                 output_dir: str = "results/metrics"):
     """Save results to CSV and JSON."""
     os.makedirs(output_dir, exist_ok=True)
     
@@ -425,6 +429,7 @@ def save_results(results: Dict[str, Any], output_dir: str = "results/metrics"):
         json.dump({
             "aggregated": aggregated,
             "drops": drops,
+            "metadata": metadata,
             "timestamp": get_timestamp(),
             "commit_hash": get_commit_hash()
         }, f, indent=2)
@@ -528,9 +533,11 @@ def main():
     config = load_config(args.config)
     
     # Set limit for dry-run
+    args.limit = resolve_sample_limit(
+        args.limit, args.dry_run, 50, config.get("datasets", {}).get("sample_limit")
+    )
     if args.dry_run:
-        args.limit = 50
-        print("Dry-run mode: limiting to 50 examples")
+        print(f"Dry-run mode: limiting to {args.limit} examples")
     
     # Setup W&B
     wandb_run = None
@@ -554,7 +561,7 @@ def main():
     
     # Load dataset
     print("Loading dataset...")
-    examples = load_dataset_from_config(config, split=args.split)
+    examples = load_dataset_from_config(config, split=args.split, limit=args.limit)
     
     # Prepare data for experiments
     queries, ground_truths, relevant_docs, corpus = prepare_for_experiments(examples)
@@ -575,7 +582,15 @@ def main():
     )
     
     # Save results
-    save_results(results)
+    save_results(results, metadata={
+        "dataset": config["datasets"]["active"],
+        "split": args.split,
+        "sample_limit": args.limit,
+        "total_queries": (
+            min(len(queries), args.limit) if args.limit is not None else len(queries)
+        ),
+        "seed": args.seed,
+    })
     
     # Plot results
     plot_ablation_results(results)

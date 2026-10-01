@@ -40,22 +40,23 @@ ENV/
 *.ipynb_checkpoints/
 
 # Data (keep README, ignore actual data files)
-data/*.csv
-data/*.json
-data/*.pkl
-data/*.h5
-data/*.hdf5
-data/*.zip
-data/*.tar.gz
-!data/README.md
+data/**/*.csv
+data/**/*.json
+data/**/*.jsonl
+data/**/*.pkl
+data/**/*.h5
+data/**/*.hdf5
+data/**/*.zip
+data/**/*.tar.gz
+!data/**/README.md
 
 # Models (keep README, ignore actual models)
-models/*.pt
-models/*.pth
-models/*.bin
-models/*.safetensors
-models/*.ckpt
-models/*.h5
+models/**/*.pt
+models/**/*.pth
+models/**/*.bin
+models/**/*.safetensors
+models/**/*.ckpt
+models/**/*.h5
 !models/.gitkeep
 
 # Checkpoints
@@ -67,15 +68,15 @@ checkpoints/
 *.ckpt
 
 # Results (keep README, ignore actual results)
-results/*.json
-results/*.csv
-results/*.pkl
-results/*.png
-results/*.jpg
-results/*.pdf
+results/**/*.json
+results/**/*.csv
+results/**/*.pkl
+results/**/*.png
+results/**/*.jpg
+results/**/*.pdf
 results/figures/
-!results/README.md
-!results/.gitkeep
+!results/**/README.md
+!results/**/.gitkeep
 
 # Weights & Biases
 wandb/
@@ -100,6 +101,8 @@ Thumbs.db
 
 # Testing
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
 .coverage
 htmlcov/
 .tox/
@@ -112,4 +115,3 @@ site/
 # Local configuration overrides
 config_local.yaml
 *.local.yaml
-

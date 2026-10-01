@@ -1,5 +1,41 @@
 # Human Evaluation Annotation Guide
 
+## Benchmark disagreement review
+
+`experiments/export_benchmark_review.py` can create a separate CSV of nonexact
+answers from saved paired benchmarks. This is a targeted review sheet, not the
+100-sample agreement study described below. For each row, compare the generated
+answer with the question and the evidence passage. Fill in:
+
+- `answers_question`: `YES`, `NO`, or `UNCLEAR`.
+- `supported_by_evidence`: `SUPPORTED`, `CONTRADICTED`, `NO EVIDENCE`, or `UNCLEAR`.
+- `reviewer_notes`: Briefly explain ambiguous or disputed cases.
+
+`source_label` is the original dataset label. It is not a human support judgment.
+Use `--scope false-accepts` when exporting only verified answers to questions
+the source dataset marked unanswerable. Review both `source_passage` and
+`evidence_passage`; the latter is what the system used to verify its answer.
+If the system abstained, mark the first two fields `NOT APPLICABLE` and note
+whether the source passage appears to contain an answer. Do not overwrite a
+partially annotated review CSV with a new export.
+
+After an independent reviewer completes every row, validate and summarize the
+sheet with:
+
+```bash
+python experiments/score_benchmark_review.py \
+  --csv results/human_eval/focused_false_accepts_current_protocol.csv \
+  --output results/human_eval/focused_false_accepts_current_protocol_report.json
+```
+
+The command exits without writing a report if any judgment is blank or invalid.
+It also refuses to overwrite an existing report. Omit `--output` to print the
+summary. The report counts abstentions separately and breaks answered cases
+down by source label and verifier status. Its counts cover only the exported
+cases, not all benchmark answers. Do not present them as an overall
+factuality rate. Multi-run exports require matching benchmark protocol and
+distinct seeds; do not mix sheets from different code versions.
+
 ## Overview
 
 This directory contains samples for human evaluation of the HALO-RAG system. Annotators are asked to evaluate whether the generated answers are supported by the provided context.
@@ -103,6 +139,12 @@ The CSV file contains the following columns:
    - Optionally add notes in the `notes` column
 3. Save the CSV file
 
+Keep the annotated file. The sample generator now refuses to overwrite it;
+use `--output` to create a new review sheet. The agreement scorer requires a
+valid human label on every row and refuses to overwrite an existing report.
+Use `--output` on the scorer to choose a new report path. If both label sets
+contain only one class, Cohen's kappa is undefined and is reported as `null`.
+
 ### Quality Control
 
 - **Consistency**: Ensure consistent labeling across similar samples
@@ -115,7 +157,7 @@ The CSV file contains the following columns:
 After annotation, the scorer script will compute:
 
 - **Percent Match**: Percentage of samples where human_label matches auto_label
-- **Cohen's κ**: Inter-annotator agreement coefficient (if multiple annotators)
+- **Cohen's κ**: Chance-corrected agreement between the verifier and reviewer
 - **Per-label Agreement**: Agreement for each label (SUPPORTED, CONTRADICTED, NO EVIDENCE)
 
 ### Expected Agreement
@@ -178,4 +220,3 @@ For questions or issues with annotation, please contact the project maintainers.
 - HALO-RAG Project Proposal
 - Evaluation Metrics Documentation
 - Annotation Guidelines Best Practices
-

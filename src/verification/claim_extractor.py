@@ -3,8 +3,7 @@ Claim Extraction Module using spaCy for Subject-Verb-Object (SVO) extraction.
 """
 
 import spacy
-from typing import List, Dict, Tuple
-import re
+from typing import List, Dict
 
 
 class ClaimExtractor:
@@ -38,34 +37,34 @@ class ClaimExtractor:
             List of dictionaries with 'subject', 'verb', 'object' keys
         """
         doc = self.nlp(text)
+        return [triple for sent in doc.sents for triple in self._extract_svo_from_sentence(sent)]
+
+    def _extract_svo_from_sentence(self, sent) -> List[Dict[str, str]]:
         triples = []
-        
-        for sent in doc.sents:
-            # Extract SVO triples from each sentence
-            for token in sent:
-                if token.pos_ == "VERB" and token.dep_ == "ROOT":
-                    # Find subject
-                    subject = None
-                    for child in token.children:
-                        if child.dep_ in ["nsubj", "nsubjpass"]:
-                            subject = self._get_phrase(child)
-                            break
-                    
-                    # Find object
-                    obj = None
-                    for child in token.children:
-                        if child.dep_ in ["dobj", "pobj", "attr"]:
-                            obj = self._get_phrase(child)
-                            break
-                    
-                    if subject and obj:
-                        triples.append({
-                            "subject": subject,
-                            "verb": token.text,
-                            "object": obj,
-                            "claim": f"{subject} {token.text} {obj}"
-                        })
-        
+        for token in sent:
+            if token.pos_ != "VERB" or token.dep_ != "ROOT":
+                continue
+
+            subject = None
+            obj = None
+            verb_tokens = [token]
+            for child in token.children:
+                if child.dep_ in ["nsubj", "nsubjpass"] and subject is None:
+                    subject = self._get_phrase(child)
+                elif child.dep_ in ["dobj", "pobj", "attr"] and obj is None:
+                    obj = self._get_phrase(child)
+                elif child.dep_ in ["aux", "auxpass", "neg"]:
+                    verb_tokens.append(child)
+
+            if subject and obj:
+                verb = " ".join(part.text for part in sorted(verb_tokens, key=lambda part: part.i))
+                triples.append({
+                    "subject": subject,
+                    "verb": verb,
+                    "object": obj,
+                    "claim": f"{subject} {verb} {obj}"
+                })
+
         return triples
     
     def _get_phrase(self, token) -> str:
@@ -92,17 +91,23 @@ class ClaimExtractor:
         Returns:
             List of claim strings
         """
-        triples = self.extract_svo_triples(text)
-        claims = [t["claim"] for t in triples]
-        
-        # If no SVO triples found, treat the entire text as a claim
-        # This handles short answers like "late 1990s" or "singing and dancing"
-        if not claims and text.strip():
-            # Clean up the text and use it as a single claim
-            cleaned_text = text.strip()
-            if len(cleaned_text) > 0:
-                claims = [cleaned_text]
-        
+        if not text.strip():
+            return []
+
+        claims = []
+        seen = set()
+        for sent in self.nlp(text).sents:
+            sentence = sent.text.strip()
+            if not sentence or sentence.endswith("?"):
+                continue
+
+            triples = self._extract_svo_from_sentence(sent)
+            sentence_claims = [triple["claim"] for triple in triples] or [sentence]
+            for claim in sentence_claims:
+                if claim not in seen:
+                    seen.add(claim)
+                    claims.append(claim)
+
         return claims
     
     def extract_claims_with_context(
@@ -133,4 +138,3 @@ class ClaimExtractor:
             })
         
         return claims_with_context
-

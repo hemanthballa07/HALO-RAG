@@ -65,7 +65,7 @@ Our Self-Verification RAG pipeline consists of five main components:
 
 ### 5. Entailment-Based Verification
 
-**Model**: `microsoft/deberta-v3-large`
+**Model**: `cross-encoder/nli-deberta-v3-base`
 - Fine-tuned on MNLI + FEVER datasets
 - Input: Premise (context) + Hypothesis (claim)
 - Output: Entailment probability
@@ -123,7 +123,7 @@ When verification fails (entailment rate < 0.90), apply one of three strategies:
 - **Factual Precision**: Fraction of claims that are entailed
 - **Factual Recall**: Fraction of ground truth claims that are entailed
 - **Hallucination Rate**: Fraction of claims that are not entailed
-- **Verified F1**: Harmonic mean of factual precision and recall
+- **Verified F1**: Answer F1 multiplied by factual precision
 
 #### Generation Metrics
 - **Exact Match**: Binary match (0 or 1)
@@ -136,7 +136,7 @@ When verification fails (entailment rate < 0.90), apply one of three strategies:
 
 **Definition**:
 ```
-Verified F1 = 2 × (Factual Precision × Factual Recall) / (Factual Precision + Factual Recall)
+Verified F1 = Answer F1 × Factual Precision
 ```
 
 **Target**: Verified F1 ≥ 0.52
@@ -144,7 +144,6 @@ Verified F1 = 2 × (Factual Precision × Factual Recall) / (Factual Precision + 
 ### 9. Statistical Testing
 
 **Methods**:
-- Independent samples t-test (α = 0.05)
 - Paired t-test for matched samples
 - Bootstrap confidence intervals (1000 iterations)
 - Significance threshold: p < 0.05
@@ -188,12 +187,12 @@ Verified F1 = 2 × (Factual Precision × Factual Recall) / (Factual Precision + 
 ### 11. Key Novel Contributions
 
 1. **Modular Metrics Framework**: Comprehensive evaluation across retrieval, verification, and generation
-2. **Verified F1 Composite Metric**: Unified metric combining factual precision and recall
+2. **Verified F1 Composite Metric**: Unified metric combining answer quality and factual precision
 3. **Iterative Self-Improvement**: Fine-tuning loops for continuous improvement
 4. **Threshold Optimization Framework**: Systematic τ-tuning for optimal verification
 5. **Adaptive Revision Framework**: combining retrieval, generation, and verification
 
-### 12. Expected Results
+### 12. Evaluation Targets
 
 **Baseline (Standard RAG)**:
 - Recall@20: ~0.85
@@ -207,15 +206,15 @@ Verified F1 = 2 × (Factual Precision × Factual Recall) / (Factual Precision + 
 - Hallucination Rate: ≤0.10
 - Verified F1: ≥0.52 (+26%)
 
-**Statistical Significance**: All improvements with p < 0.05
+Statistical significance is assessed after the runs; it is not assumed in advance.
 
 ### 13. Implementation Details
 
-**Hardware**: HiperGator (V100/A100 GPUs)
+**Target hardware**: CUDA-capable research compute for QLoRA training; CPU, MPS, or CUDA for inference
 
 **Software**:
 - PyTorch 2.0+
-- Transformers 4.35+
+- Transformers 4.46+
 - Sentence-Transformers 2.2+
 - FAISS (CPU or GPU)
 - spaCy 3.7+

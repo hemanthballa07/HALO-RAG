@@ -36,6 +36,7 @@ project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
 from src.pipeline import SelfVerificationRAGPipeline
+from src.utils.device import resolve_device
 from src.revision import AdaptiveRevisionStrategy, RevisionStrategy
 
 
@@ -67,7 +68,7 @@ def test_re_retrieval_strategy():
     # Initialize pipeline with revision enabled
     pipeline = SelfVerificationRAGPipeline(
         corpus=corpus,
-        device="cuda",
+        device=resolve_device("auto"),
         enable_revision=True,
         max_revision_iterations=2,
         use_qlora=False  # Use base model for testing
@@ -117,7 +118,7 @@ def test_constrained_generation_strategy():
     # Initialize pipeline with revision enabled
     pipeline = SelfVerificationRAGPipeline(
         corpus=corpus,
-        device="cuda",
+        device=resolve_device("auto"),
         enable_revision=True,
         max_revision_iterations=2,
         use_qlora=False
@@ -165,7 +166,7 @@ def test_claim_by_claim_strategy():
     # Initialize pipeline with revision enabled
     pipeline = SelfVerificationRAGPipeline(
         corpus=corpus,
-        device="cuda",
+        device=resolve_device("auto"),
         enable_revision=True,
         max_revision_iterations=2,
         use_qlora=False
@@ -235,7 +236,7 @@ def test_all_strategies_forced():
         # Initialize pipeline for each test
         pipeline = SelfVerificationRAGPipeline(
             corpus=corpus,
-            device="cuda",
+            device=resolve_device("auto"),
             enable_revision=True,
             max_revision_iterations=2,
             use_qlora=False
@@ -359,4 +360,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

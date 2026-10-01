@@ -29,7 +29,8 @@ from src.data import load_dataset_from_config, prepare_for_experiments
 from src.pipeline import SelfVerificationRAGPipeline
 from src.evaluation import EvaluationMetrics
 from src.utils import setup_wandb, log_metrics, log_metadata, get_commit_hash, get_timestamp
-from src.utils.cli import parse_experiment_args
+from src.utils.cli import parse_experiment_args, resolve_sample_limit
+from src.utils.device import resolve_device
 
 
 def load_config(config_path: str = "config/config.yaml"):
@@ -174,7 +175,7 @@ def run_self_consistency_experiment(
     np.random.seed(seed)
     torch.manual_seed(seed)
     
-    device = "cuda"
+    device = resolve_device(config.get("experiments", {}).get("device", "auto"))
     print(f"Using device: {device}")
     
     # Initialize pipeline
@@ -487,16 +488,15 @@ def main():
     factual_precision_threshold = config.get("experiments", {}).get("exp5", {}).get("factual_precision_threshold", 0.9)
     
     # Determine sample limit
-    sample_limit = args.limit
+    sample_limit = resolve_sample_limit(
+        args.limit, args.dry_run, 20, config.get("datasets", {}).get("sample_limit")
+    )
     if args.dry_run:
-        sample_limit = 20  # Smaller for self-consistency (k=5 samples each)
-        print("⚠ DRY RUN MODE: Using 20 samples")
-    elif sample_limit is None:
-        sample_limit = config.get("datasets", {}).get("sample_limit")
+        print(f"⚠ DRY RUN MODE: Using {sample_limit} samples")
     
     # Load dataset
     print("Loading dataset...")
-    examples = load_dataset_from_config(config, split=args.split)
+    examples = load_dataset_from_config(config, split=args.split, limit=sample_limit)
     
     # Apply sample limit if specified
     if sample_limit:
@@ -626,4 +626,3 @@ def main():
 
 if __name__ == "__main__":
     results = main()
-

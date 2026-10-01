@@ -27,6 +27,8 @@ from src.data import load_dataset_from_config, prepare_for_experiments
 from src.pipeline import SelfVerificationRAGPipeline
 from src.evaluation import EvaluationMetrics
 from src.utils import setup_wandb, log_metrics, log_metadata, get_commit_hash, get_timestamp
+from src.utils.device import resolve_device
+from src.utils.cli import resolve_sample_limit
 
 
 def load_config(config_path: str = "config/config.yaml"):
@@ -278,7 +280,7 @@ def run_tau_sweep_stress_test(
     np.random.seed(seed)
     torch.manual_seed(seed)
     
-    device = "cuda"
+    device = resolve_device(config.get("experiments", {}).get("device", "auto"))
     print(f"Using device: {device}")
     
     if limit:
@@ -320,9 +322,8 @@ def run_tau_sweep_stress_test(
                     retrieved_texts=retrieved_texts
                 )
                 all_metrics.append(metrics)
-            except Exception as e:
-                print(f"Error: {e}")
-                continue
+            except Exception as exc:
+                raise RuntimeError(f"τ-sweep failed at threshold {threshold}") from exc
         
         # Aggregate metrics
         if all_metrics:
@@ -369,7 +370,7 @@ def run_retrieval_degradation_test(
     np.random.seed(seed)
     torch.manual_seed(seed)
     
-    device = "cuda"
+    device = resolve_device(config.get("experiments", {}).get("device", "auto"))
     print(f"Using device: {device}")
     
     if limit:
@@ -415,9 +416,10 @@ def run_retrieval_degradation_test(
                     retrieved_texts=retrieved_texts
                 )
                 all_metrics.append(metrics)
-            except Exception as e:
-                print(f"Error: {e}")
-                continue
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Retrieval degradation failed at target recall {target_recall}"
+                ) from exc
         
         # Aggregate metrics
         if all_metrics:
@@ -461,7 +463,7 @@ def run_verifier_off_test(
     np.random.seed(seed)
     torch.manual_seed(seed)
     
-    device = "cuda"
+    device = resolve_device(config.get("experiments", {}).get("device", "auto"))
     print(f"Using device: {device}")
     
     if limit:
@@ -501,9 +503,8 @@ def run_verifier_off_test(
                 retrieved_texts=retrieved_texts
             )
             all_metrics.append(metrics)
-        except Exception as e:
-            print(f"Error: {e}")
-            continue
+        except Exception as exc:
+            raise RuntimeError("Verifier-off evaluation failed") from exc
     
     # Aggregate metrics
     if all_metrics:
@@ -545,7 +546,7 @@ def run_baseline_test(
     np.random.seed(seed)
     torch.manual_seed(seed)
     
-    device = "cuda"
+    device = resolve_device(config.get("experiments", {}).get("device", "auto"))
     print(f"Using device: {device}")
     
     if limit:
@@ -583,9 +584,8 @@ def run_baseline_test(
                 retrieved_texts=retrieved_texts
             )
             all_metrics.append(metrics)
-        except Exception as e:
-            print(f"Error: {e}")
-            continue
+        except Exception as exc:
+            raise RuntimeError("Stress-test baseline evaluation failed") from exc
     
     # Aggregate metrics
     if all_metrics:
@@ -755,6 +755,7 @@ def save_stress_test_results(
     retrieval_results: Dict[str, Any],
     baseline_results: Dict[str, Any],
     verifier_off_results: Dict[str, Any],
+    metadata: Dict[str, Any],
     output_dir: str = "results/metrics"
 ):
     """Save stress test results to CSV and JSON."""
@@ -818,6 +819,7 @@ def save_stress_test_results(
             "retrieval_degradation": retrieval_results,
             "baseline": baseline_results,
             "verifier_off": verifier_off_results,
+            "metadata": metadata,
             "timestamp": get_timestamp(),
             "commit_hash": get_commit_hash()
         }, f, indent=2)
@@ -847,9 +849,11 @@ def main():
     config = load_config(args.config)
     
     # Set limit for dry-run
+    args.limit = resolve_sample_limit(
+        args.limit, args.dry_run, 50, config.get("datasets", {}).get("sample_limit")
+    )
     if args.dry_run:
-        args.limit = 50
-        print("Dry-run mode: limiting to 50 examples")
+        print(f"Dry-run mode: limiting to {args.limit} examples")
     
     # Setup W&B
     wandb_run = None
@@ -873,7 +877,7 @@ def main():
     
     # Load dataset
     print("Loading dataset...")
-    examples = load_dataset_from_config(config, split=args.split)
+    examples = load_dataset_from_config(config, split=args.split, limit=args.limit)
     
     # Prepare data for experiments
     queries, ground_truths, relevant_docs, corpus = prepare_for_experiments(examples)
@@ -944,7 +948,16 @@ def main():
         tau_results=tau_results,
         retrieval_results=retrieval_results,
         baseline_results=baseline_results,
-        verifier_off_results=verifier_off_results
+        verifier_off_results=verifier_off_results,
+        metadata={
+            "dataset": config["datasets"]["active"],
+            "split": args.split,
+            "sample_limit": args.limit,
+            "total_queries": (
+                min(len(queries), args.limit) if args.limit is not None else len(queries)
+            ),
+            "seed": args.seed,
+        },
     )
     
     # Generate plots

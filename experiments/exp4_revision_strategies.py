@@ -15,9 +15,14 @@ import numpy as np
 from typing import List, Dict, Any
 from tqdm import tqdm
 import json
+import random
 
+from src.data import load_dataset_from_config, prepare_for_experiments
 from src.pipeline import SelfVerificationRAGPipeline
-from src.evaluation import EvaluationMetrics, StatisticalTester
+from src.evaluation import StatisticalTester
+from src.utils import get_commit_hash, get_timestamp
+from src.utils.cli import parse_experiment_args, resolve_sample_limit
+from src.utils.device import resolve_device
 
 
 def load_config(config_path: str = "config/config.yaml"):
@@ -32,7 +37,8 @@ def run_revision_strategies_experiment(
     ground_truths: List[str],
     relevant_docs: List[List[int]],
     corpus: List[str],
-    config: Dict[str, Any]
+    config: Dict[str, Any],
+    metadata: Dict[str, Any],
 ):
     """
     Compare revision strategies.
@@ -43,11 +49,11 @@ def run_revision_strategies_experiment(
         relevant_docs: List of relevant document IDs for each query
         corpus: List of documents
         config: Configuration dictionary
+        metadata: Dataset and run identity saved with the results
     """
-    device = "cuda"
+    device = resolve_device(config.get("experiments", {}).get("device", "auto"))
     
     # Initialize evaluator
-    evaluator = EvaluationMetrics()
     stats_tester = StatisticalTester(alpha=0.05)
     
     # Baseline (no revision)
@@ -125,14 +131,15 @@ def run_revision_strategies_experiment(
     }
     
     # Save results
-    os.makedirs("results", exist_ok=True)
-    with open("results/exp4_revision_strategies.json", "w") as f:
+    os.makedirs("results/metrics", exist_ok=True)
+    with open("results/metrics/exp4_revision_strategies.json", "w") as f:
         json.dump({
             "baseline_metrics": baseline_aggregated,
             "revision_metrics": revision_aggregated,
             "statistical_comparisons": comparisons,
-            "revision_statistics": revision_stats
-        }, f, indent=2)
+            "revision_statistics": revision_stats,
+            "metadata": metadata,
+        }, f, indent=2, default=lambda value: value.item())
     
     print("\n=== Experiment 4: Revision Strategies ===")
     print("\nBaseline (no revision):")
@@ -156,14 +163,43 @@ def run_revision_strategies_experiment(
     return baseline_aggregated, revision_aggregated, comparisons
 
 
-if __name__ == "__main__":
-    config = load_config()
-    
-    # Load your dataset here
-    # queries, ground_truths, relevant_docs, corpus = load_dataset(...)
-    
-    # Run experiment
-    # baseline_aggregated, revision_aggregated, comparisons = run_revision_strategies_experiment(
-    #     queries, ground_truths, relevant_docs, corpus, config
-    # )
+def main():
+    """Load the configured dataset and compare revision against the baseline."""
+    args = parse_experiment_args("Experiment 4: revision strategies")
+    config = load_config(args.config)
 
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+
+    sample_limit = resolve_sample_limit(
+        args.limit, args.dry_run, 30, config.get("datasets", {}).get("sample_limit")
+    )
+
+    examples = load_dataset_from_config(config, split=args.split, limit=sample_limit)
+    if sample_limit:
+        examples = examples[:sample_limit]
+    if not examples:
+        raise RuntimeError("The configured dataset returned no examples.")
+
+    queries, ground_truths, relevant_docs, corpus = prepare_for_experiments(examples)
+    return run_revision_strategies_experiment(
+        queries=queries,
+        ground_truths=ground_truths,
+        relevant_docs=relevant_docs,
+        corpus=corpus,
+        config=config,
+        metadata={
+            "dataset": config["datasets"]["active"],
+            "split": args.split,
+            "sample_limit": sample_limit,
+            "total_queries": len(queries),
+            "seed": args.seed,
+            "commit_hash": get_commit_hash(),
+            "timestamp": get_timestamp(),
+        },
+    )
+
+
+if __name__ == "__main__":
+    main()

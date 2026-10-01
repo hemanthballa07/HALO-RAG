@@ -26,7 +26,8 @@ from src.data import load_dataset_from_config, prepare_for_experiments
 from src.pipeline import SelfVerificationRAGPipeline
 from src.evaluation import EvaluationMetrics, StatisticalTester
 from src.utils import setup_wandb, log_metrics, log_metadata, get_commit_hash, get_timestamp
-from src.utils.cli import parse_experiment_args
+from src.utils.cli import parse_experiment_args, resolve_sample_limit
+from src.utils.device import resolve_device
 
 
 def load_config(config_path: str = "config/config.yaml"):
@@ -67,7 +68,7 @@ def run_baseline_experiment(
     np.random.seed(seed)
     torch.manual_seed(seed)
     
-    device = "cuda"
+    device = resolve_device(config.get("experiments", {}).get("device", "auto"))
     print(f"Using device: {device}")
     
     use_qlora = config.get("generation", {}).get("qlora", {}).get("training_enabled", False)
@@ -307,12 +308,11 @@ def main():
     torch.manual_seed(seed)
     
     # Determine sample limit
-    sample_limit = args.limit
+    sample_limit = resolve_sample_limit(
+        args.limit, args.dry_run, 30, config.get("datasets", {}).get("sample_limit")
+    )
     if args.dry_run:
-        sample_limit = 30  # Dry run with 30 samples
-        print("⚠ DRY RUN MODE: Using 30 samples")
-    elif sample_limit is None:
-        sample_limit = config.get("datasets", {}).get("sample_limit")
+        print(f"⚠ DRY RUN MODE: Using {sample_limit} samples")
     
     # Load dataset
     print("Loading dataset...")
@@ -321,7 +321,7 @@ def main():
         print("   Exp6 uses 'train' split for fine-tuning, so evaluation should use 'validation' to avoid data leakage.")
     else:
         print("✓ Using 'validation' split (correct for evaluation, avoids data leakage with Exp6 training data)")
-    examples = load_dataset_from_config(config, split=args.split)
+    examples = load_dataset_from_config(config, split=args.split, limit=sample_limit)
     
     # Apply sample limit if specified
     if sample_limit:

@@ -3,11 +3,11 @@ Dataset loaders for SQuAD v2, Natural Questions, and HotpotQA.
 Normalizes all datasets to a unified schema.
 """
 
-import os
 import re
-from typing import List, Dict, Any, Optional, Tuple
-from datasets import load_dataset as hf_load_dataset, Dataset
 import logging
+from typing import Any, Dict, List, Optional, Tuple
+
+from datasets import load_dataset as hf_load_dataset
 
 logger = logging.getLogger(__name__)
 
@@ -36,9 +36,9 @@ def normalize_text(text: str) -> str:
     # Strip whitespace
     text = text.strip()
     
-    # Normalize quotes (convert curly quotes to straight quotes)
-    text = text.replace('"', '"').replace('"', '"')
-    text = text.replace(''', "'").replace(''', "'")
+    # Normalize typographic quotes to stable ASCII equivalents.
+    text = text.replace("\u201c", '"').replace("\u201d", '"')
+    text = text.replace("\u2018", "'").replace("\u2019", "'")
     
     # Normalize whitespace (multiple spaces to single space)
     text = re.sub(r'\s+', ' ', text)
@@ -47,6 +47,45 @@ def normalize_text(text: str) -> str:
     text = text.strip()
     
     return text
+
+
+def _sequence_records(value: Any) -> List[Dict[str, Any]]:
+    """Normalize Hugging Face sequence features to a list of dictionaries.
+
+    Depending on the dataset and ``datasets`` version, a nested sequence may be
+    materialized as either ``list[dict]`` or ``dict[str, list]``. Supporting both
+    forms keeps the loaders stable across Arrow schema representations.
+    """
+    if isinstance(value, list):
+        return [record for record in value if isinstance(record, dict)]
+    if not isinstance(value, dict):
+        return []
+
+    sequence_lengths = [
+        len(item) for item in value.values() if isinstance(item, (list, tuple))
+    ]
+    if not sequence_lengths:
+        return [value]
+
+    record_count = max(sequence_lengths)
+    records = []
+    for index in range(record_count):
+        record = {}
+        for key, item in value.items():
+            if isinstance(item, (list, tuple)):
+                record[key] = item[index] if index < len(item) else None
+            else:
+                record[key] = item
+        records.append(record)
+    return records
+
+
+def _document_tokens(document: Dict[str, Any]) -> List[Any]:
+    """Return document tokens from either supported sequence representation."""
+    tokens = document.get("tokens", [])
+    if isinstance(tokens, dict):
+        return _sequence_records(tokens)
+    return list(tokens) if isinstance(tokens, (list, tuple)) else []
 
 
 def validate_example(example: Dict[str, Any]) -> bool:
@@ -213,7 +252,7 @@ def load_natural_questions(
             doc = item["document"]
             
             # Extract text from document tokens
-            doc_tokens = doc.get("tokens", [])
+            doc_tokens = _document_tokens(doc)
             if doc_tokens:
                 doc_words = []
                 for token in doc_tokens:
@@ -238,26 +277,30 @@ def load_natural_questions(
         # Extract answers (short answers)
         answers = []
         if "annotations" in item and item["annotations"]:
-            annotations = item["annotations"]
-            if isinstance(annotations, list) and len(annotations) > 0:
+            annotations = _sequence_records(item["annotations"])
+            if annotations:
                 # Get first annotation (typically there's one per question)
                 ann = annotations[0]
                 if "short_answers" in ann and ann["short_answers"]:
-                    short_answers = ann["short_answers"]
-                    if isinstance(short_answers, list) and len(short_answers) > 0:
+                    short_answers = _sequence_records(ann["short_answers"])
+                    if short_answers:
                         # Extract text from short answer tokens
                         for sa in short_answers:
                             if isinstance(sa, dict):
-                                # Short answer has start_token and end_token indices
-                                # We need to extract the actual text from document tokens
+                                answer_text = sa.get("text", "")
+                                if answer_text:
+                                    answers.append(normalize_text(answer_text))
+                                    continue
+
+                                # NQ token spans use an exclusive end offset.
                                 start_token = sa.get("start_token", -1)
                                 end_token = sa.get("end_token", -1)
                                 
                                 if start_token >= 0 and end_token >= 0 and "document" in item:
-                                    doc_tokens = item["document"].get("tokens", [])
-                                    if doc_tokens and end_token < len(doc_tokens):
+                                    doc_tokens = _document_tokens(item["document"])
+                                    if doc_tokens and start_token < end_token <= len(doc_tokens):
                                         answer_words = []
-                                        for i in range(start_token, end_token + 1):
+                                        for i in range(start_token, end_token):
                                             token = doc_tokens[i]
                                             if isinstance(token, dict):
                                                 answer_words.append(token.get("token", ""))
@@ -336,8 +379,17 @@ def load_hotpotqa(
         # Extract context (combine all context paragraphs)
         context_parts = []
         if "context" in item:
-            context_list = item["context"]
-            if isinstance(context_list, list):
+            context_value = item["context"]
+            if isinstance(context_value, dict):
+                titles = context_value.get("title", [])
+                sentence_groups = context_value.get("sentences", [])
+                for title, sentences in zip(titles, sentence_groups):
+                    if sentences:
+                        paragraph = " ".join(sentences)
+                        context_parts.append(f"{title}: {paragraph}" if title else paragraph)
+            elif isinstance(context_value, list):
+                # Retain compatibility with older list-of-dictionaries exports.
+                context_list = context_value
                 for ctx in context_list:
                     if isinstance(ctx, dict):
                         title = ctx.get("title", "")
@@ -424,7 +476,7 @@ def prepare_for_experiments(
     Converts unified schema to format expected by experiments:
     - queries: List[str]
     - ground_truths: List[str] (first answer or empty string)
-    - relevant_docs: List[List[int]] (placeholder, will be filled by retrieval)
+    - relevant_docs: List[List[int]] (gold context IDs in the generated corpus)
     - corpus: List[str] (contexts)
     
     Args:
@@ -513,4 +565,3 @@ def load_dataset_from_config(
     
     logger.info(f"Loaded {len(examples)} examples from {active_dataset} ({split_name})")
     return examples
-

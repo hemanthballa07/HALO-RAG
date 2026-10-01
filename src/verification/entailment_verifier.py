@@ -5,9 +5,14 @@ Uses cross-encoder/nli-deberta-v3-base fine-tuned on NLI tasks
 
 import torch
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
-from typing import List, Dict, Tuple, Optional
+from typing import Any, List, Dict, Tuple, Optional
 import numpy as np
 import re
+import unicodedata
+
+from nltk.stem import PorterStemmer
+
+from src.utils.device import resolve_device
 
 
 class EntailmentVerifier:
@@ -19,7 +24,7 @@ class EntailmentVerifier:
     def __init__(
         self,
         model_name: str = "cross-encoder/nli-deberta-v3-base",
-        device: str = "cuda",
+        device: str = "auto",
         threshold: float = 0.75,
         max_length: int = 512
     ):
@@ -32,6 +37,9 @@ class EntailmentVerifier:
             threshold: Entailment threshold (τ)
             max_length: Maximum sequence length
         """
+        if not 0.0 <= threshold <= 1.0:
+            raise ValueError("threshold must be between 0 and 1")
+        device = resolve_device(device)
         self.device = device
         self.threshold = threshold
         self.max_length = max_length
@@ -43,15 +51,219 @@ class EntailmentVerifier:
         self.model.to(device)
         self.model.eval()
         
-        # Label mapping: 0=contradiction, 1=neutral, 2=entailment
-        self.label_map = {0: "contradiction", 1: "neutral", 2: "entailment"}
+        # Read the label order from the checkpoint rather than assuming an MNLI
+        # convention. NLI checkpoints do not all use the same class indices.
+        self.label_map = {
+            int(index): str(label).lower()
+            for index, label in self.model.config.id2label.items()
+        }
+        self.contradiction_index = self._label_index("contradiction")
+        self.entailment_index = self._label_index("entailment")
+        self.neutral_index = self._label_index("neutral")
+
+    def _label_index(self, expected_label: str) -> int:
+        """Return the checkpoint index for an NLI label, failing clearly if absent."""
+        for index, label in self.label_map.items():
+            normalized = label.lower().replace("-", "_").replace(" ", "_")
+            if expected_label in normalized:
+                return index
+        raise ValueError(
+            f"Model label mapping {self.label_map!r} does not define "
+            f"an '{expected_label}' class. Choose an NLI sequence-classification checkpoint."
+        )
+
+    @staticmethod
+    def _content_terms(text: str) -> set[str]:
+        stop_words = {
+            "a", "an", "and", "are", "as", "at", "be", "been", "by", "can",
+            "could", "did", "do", "does", "for", "from", "had", "has", "have",
+            "her", "his", "how", "in", "is", "it", "its", "of", "on", "or",
+            "that", "the", "their", "there", "this", "to", "was", "were",
+            "what", "when", "where", "which", "who", "why", "would",
+        }
+        terms = set()
+        for word in re.findall(r"\w+", text.casefold()):
+            if word in stop_words or len(word) < 3:
+                continue
+            if word.endswith("ies") and len(word) > 5:
+                word = word[:-3] + "y"
+            elif word.endswith("ing") and len(word) > 5:
+                word = word[:-3]
+                if len(word) > 2 and word[-1] == word[-2]:
+                    word = word[:-1]
+            elif word.endswith("ed") and len(word) > 4:
+                word = word[:-2]
+            elif word.endswith("es") and len(word) > 4:
+                word = word[:-2]
+            elif word.endswith("s") and len(word) > 4 and not word.endswith("ss"):
+                word = word[:-1]
+            terms.add(word)
+        return terms
+
+    @staticmethod
+    def _normalized_words(text: str) -> list[str]:
+        unaccented = "".join(
+            character for character in unicodedata.normalize("NFKD", text.casefold())
+            if not unicodedata.combining(character)
+        )
+        return re.findall(r"\w+", unaccented)
+
+    @staticmethod
+    def _find_words(words: list[str], target: list[str]) -> int:
+        if not target:
+            return -1
+        return next(
+            (index for index in range(len(words) - len(target) + 1)
+             if words[index:index + len(target)] == target),
+            -1,
+        )
+
+    @classmethod
+    def _question_constraints_match(
+        cls, query: str, sentence: str, context: str, answer_tokens: list[str]
+    ) -> bool:
+        """Keep text overlap from overriding explicit question constraints."""
+        query_words = re.findall(r"\w+", query)
+        context_words = cls._normalized_words(context)
+        sentence_words = cls._normalized_words(sentence)
+
+        occurrence = re.fullmatch(
+            r"who\s+does\s+(.+?)\s+occur\s+in\??", query.strip(), re.I
+        )
+        if occurrence and cls._find_words(
+            sentence_words, cls._normalized_words(occurrence.group(1))
+        ) < 0:
+            return False
+
+        for location in re.findall(
+            r"\bin\s+([A-Z][\w]*(?:\s+[A-Z][\w]*)*)", query
+        ):
+            if cls._find_words(context_words, cls._normalized_words(location)) < 0:
+                return False
+
+        for index, word in enumerate(query_words):
+            if not word.isupper() or index == 0:
+                continue
+            if word.isalpha() and len(word) == 1 and index + 1 < len(query_words):
+                if query_words[index + 1].casefold() == "molecule":
+                    anchor = cls._normalized_words(f"{word} molecule")
+                    if cls._find_words(context_words, anchor) < 0:
+                        return False
+                    continue
+            anchor = cls._normalized_words(word)
+            if cls._find_words(context_words, anchor) < 0:
+                if not (re.fullmatch(r"[A-Z]\d+", word)
+                        and re.search(
+                            rf"\b{re.escape(word[0])}\s+{re.escape(word[1:])}\b",
+                            context,
+                            re.I,
+                        )):
+                    return False
+
+        for index in range(1, len(query_words) - 1):
+            if query_words[index].casefold() not in {"for", "of", "the"}:
+                continue
+            if not (query_words[index - 1][0].isupper()
+                    and query_words[index + 1][0].isupper()):
+                continue
+            left, right = index - 1, index + 2
+            while left > 0 and query_words[left - 1][0].isupper():
+                left -= 1
+            while right < len(query_words) and query_words[right][0].isupper():
+                right += 1
+            if cls._find_words(context_words, cls._normalized_words(
+                " ".join(query_words[left:right])
+            )) < 0:
+                return False
+
+        stemmer = PorterStemmer()
+        question_words = cls._normalized_words(query)
+        leading_year = (
+            len(question_words) >= 2
+            and question_words[0] == "in"
+            and len(question_words[1]) == 4
+            and question_words[1].isdigit()
+        )
+        if leading_year:
+            question_words = question_words[2:]
+        if (len(question_words) >= 6 and question_words[0] == "what"
+                and question_words[2] == "did"):
+            tail = question_words[3:]
+            trailing_year = (len(tail) >= 3 and tail[-2] in {"in", "on", "at"}
+                             and len(tail[-1]) == 4 and tail[-1].isdigit())
+            if trailing_year:
+                tail = tail[:-2]
+            # The final word is an action only in this simple dated form.
+            if ((leading_year or trailing_year) and len(tail) >= 2
+                    and not set(tail) & {"for", "of", "with", "by", "from", "to"}):
+                action = stemmer.stem(tail[-1])
+                if action not in {stemmer.stem(word) for word in sentence_words}:
+                    return False
+
+        if (len(question_words) >= 5 and question_words[0] in {"which", "what"}
+                and question_words[2] in {"do", "does", "did"}):
+            subject_acronyms = [
+                cls._normalized_words(word)[0]
+                for word in query_words[3:-1]
+                if word.isupper() and len(word) > 1
+            ]
+            if subject_acronyms:
+                answer_index = cls._find_words(sentence_words, cls._normalized_words(
+                    " ".join(answer_tokens)
+                ))
+                subject_index = cls._find_words(sentence_words, subject_acronyms[:1])
+                action = stemmer.stem(question_words[-1])
+                action_indices = [
+                    index for index, word in enumerate(sentence_words)
+                    if stemmer.stem(word) == action
+                ]
+                if (answer_index >= 0 and subject_index >= 0
+                        and any(answer_index < index < subject_index
+                                and "by" not in sentence_words[index:subject_index]
+                                for index in action_indices)):
+                    return False
+        return True
+
+    @classmethod
+    def _answer_sentence_matches_query(cls, claim: str, context: str, query: str) -> bool:
+        """Allow a lexical shortcut only when the answer and question share a sentence."""
+        question_terms = cls._content_terms(query)
+        if not question_terms:
+            return False
+        answer_tokens = re.findall(r"\w+", claim.casefold())
+        if not answer_tokens:
+            return False
+        fragments = re.split(r"(?<=[.!?])\s+", context)
+        sentences = []
+        current = ""
+        for fragment in fragments:
+            current = f"{current} {fragment}".strip()
+            if re.search(r"\b(?:Dr|Jr|Mr|Mrs|Ms|Prof|Rep|Sen|Sr|St|U\.S)\.$", current, re.I):
+                continue
+            sentences.append(current)
+            current = ""
+        if current:
+            sentences.append(current)
+
+        for sentence in sentences:
+            sentence_tokens = re.findall(r"\w+", sentence.casefold())
+            width = len(answer_tokens)
+            if not any(
+                sentence_tokens[index:index + width] == answer_tokens
+                for index in range(len(sentence_tokens) - width + 1)
+            ):
+                continue
+            if (len(question_terms & cls._content_terms(sentence)) >= min(2, len(question_terms))
+                    and cls._question_constraints_match(query, sentence, context, answer_tokens)):
+                return True
+        return False
     
     def verify_claim(
         self,
         claim: str,
         context: str,
         query: Optional[str] = None
-    ) -> Dict[str, float]:
+    ) -> Dict[str, Any]:
         """
         Verify a single claim against context.
         
@@ -62,15 +274,26 @@ class EntailmentVerifier:
         
         Returns:
             Dictionary with 'entailment', 'neutral', 'contradiction' scores
+            and the method used to produce them
         """
-        # First, check if the raw claim (without formatting) appears in context
-        # This handles direct answers like "Bohemond" that appear in context
+        # Preserve the direct-match shortcut for claims without a question.
         claim_clean = claim.strip()
         claim_normalized_raw = re.sub(r'[^\w\s]', '', claim_clean.lower())
         context_normalized = re.sub(r'[^\w\s]', '', context.lower())
+        short_answer_with_query = bool(query and claim_clean and len(claim_clean.split()) <= 10)
+
+        if short_answer_with_query and self._answer_sentence_matches_query(
+            claim_clean, context, query
+        ):
+            return {
+                "contradiction": 0.0,
+                "neutral": 0.0,
+                "entailment": 1.0,
+                "method": "question_sentence_match",
+            }
         
         # Check if the raw claim appears as a substring or as a significant phrase
-        if claim_normalized_raw and len(claim_normalized_raw.split()) <= 10:
+        if not query and claim_normalized_raw and len(claim_normalized_raw.split()) <= 10:
             # For short claims, check if they appear directly in context
             if claim_normalized_raw in context_normalized:
                 # For single-word claims, use word boundary matching
@@ -81,7 +304,8 @@ class EntailmentVerifier:
                         return {
                             "contradiction": 0.0,
                             "neutral": 0.0,
-                            "entailment": 1.0
+                            "entailment": 1.0,
+                            "method": "direct_text_match",
                         }
                 else:
                     # Multi-word: check if it appears as a phrase
@@ -89,19 +313,23 @@ class EntailmentVerifier:
                     return {
                         "contradiction": 0.0,
                         "neutral": 0.0,
-                        "entailment": 1.0
+                        "entailment": 1.0,
+                        "method": "direct_text_match",
                     }
         
-        # Format claim as a complete sentence if it's not already
-        # Short answers like "2003" or "June 2005" need to be converted to full claims
-        formatted_claim = self._format_claim_for_verification(claim, context, query)
+        # Keep the question attached to short answers that need model verification.
+        if short_answer_with_query:
+            formatted_claim = f"Question: {query.strip()} Answer: {claim_clean.rstrip('.!?')}."
+        else:
+            formatted_claim = self._format_claim_for_verification(claim, context, query)
         
         # Check if the formatted claim's key content appears in context
         # Extract the actual answer from formatted claim (remove "The answer is" etc.)
         formatted_normalized = re.sub(r'[^\w\s]', '', formatted_claim.lower())
         
         # Check if all significant words from the claim appear in the context
-        claim_words = set(formatted_normalized.split())
+        formatted_words = formatted_normalized.split()
+        claim_words = set(formatted_words)
         context_words = set(context_normalized.split())
         
         # Remove common stop words for matching
@@ -110,12 +338,15 @@ class EntailmentVerifier:
         context_words_clean = context_words - stop_words
         
         # If most claim words appear in context, check more carefully
-        if len(claim_words_clean) > 0:
+        if not query and len(claim_words_clean) > 0:
             overlap_ratio = len(claim_words_clean & context_words_clean) / len(claim_words_clean)
             # For high overlap, check if the key content appears as a phrase
             if overlap_ratio >= 0.8:
                 # Check if the core claim (without formatting words) appears as a phrase
-                core_claim_words = [w for w in claim_words_clean if w not in {'answer', 'is', 'was', 'are', 'were'}]
+                core_claim_words = [
+                    word for word in formatted_words
+                    if word in claim_words_clean
+                ]
                 if core_claim_words:
                     # Check if these words appear together in context
                     core_phrase = ' '.join(core_claim_words)
@@ -123,7 +354,8 @@ class EntailmentVerifier:
                         return {
                             "contradiction": 0.0,
                             "neutral": 0.0,
-                            "entailment": 1.0
+                            "entailment": 1.0,
+                            "method": "phrase_match",
                         }
         
         # Format as premise-hypothesis pair for NLI
@@ -148,26 +380,30 @@ class EntailmentVerifier:
         probs = probs.cpu().numpy()[0]
         
         # Get scores
-        contradiction_score = float(probs[0])
-        neutral_score = float(probs[1])
-        entailment_score = float(probs[2])
+        contradiction_score = float(probs[self.contradiction_index])
+        neutral_score = float(probs[self.neutral_index])
+        entailment_score = float(probs[self.entailment_index])
+        method = "nli"
         
         # If entailment score is very low but the raw claim appears in context,
         # boost the entailment score (the model might be confused by formatting)
-        if entailment_score < 0.3 and claim_normalized_raw in context_normalized:
+        if not query and entailment_score < 0.3 and claim_normalized_raw in context_normalized:
             # Boost entailment if raw claim is clearly in context
             if len(claim_normalized_raw.split()) <= 5:  # Short answers
                 entailment_score = max(entailment_score, 0.7)
+                method = "nli_with_text_boost"
                 # Adjust other scores proportionally
-                total = contradiction_score + neutral_score + entailment_score
-                if total > 0:
-                    contradiction_score = contradiction_score * (1.0 - entailment_score) / (contradiction_score + neutral_score) if (contradiction_score + neutral_score) > 0 else 0.0
-                    neutral_score = neutral_score * (1.0 - entailment_score) / (contradiction_score + neutral_score) if (contradiction_score + neutral_score) > 0 else 0.0
+                other_total = contradiction_score + neutral_score
+                if other_total > 0:
+                    remaining_probability = 1.0 - entailment_score
+                    contradiction_score = contradiction_score * remaining_probability / other_total
+                    neutral_score = neutral_score * remaining_probability / other_total
         
         return {
             "contradiction": contradiction_score,
             "neutral": neutral_score,
-            "entailment": entailment_score
+            "entailment": entailment_score,
+            "method": method,
         }
     
     def _format_claim_for_verification(self, claim: str, context: str, query: Optional[str] = None) -> str:
@@ -233,7 +469,7 @@ class EntailmentVerifier:
         self,
         claims: List[str],
         contexts: List[str]
-    ) -> List[Dict[str, float]]:
+    ) -> List[Dict[str, Any]]:
         """
         Verify multiple claims against their contexts.
         
@@ -285,7 +521,7 @@ class EntailmentVerifier:
         retrieved_contexts: List[str],
         claims: List[str],
         query: Optional[str] = None
-    ) -> Dict[str, any]:
+    ) -> Dict[str, Any]:
         """
         Verify all claims in generated text against retrieved contexts.
         
@@ -298,10 +534,6 @@ class EntailmentVerifier:
         Returns:
             Dictionary with verification results
         """
-        # Handle empty claims: if no claims extracted, treat entire text as one claim
-        if not claims:
-            claims = [generated_text.strip()] if generated_text.strip() else []
-        
         # Combine contexts for verification
         combined_context = " ".join(retrieved_contexts[:3]) if retrieved_contexts else ""  # Use top 3 contexts
         
@@ -309,12 +541,12 @@ class EntailmentVerifier:
         for claim in claims:
             # Get full verification result (contradiction, neutral, entailment scores)
             full_result = self.verify_claim(claim, combined_context, query)
-            is_entailed, score = self.is_entailed(claim, combined_context, query=query)
-            
+
             # Determine label based on scores
             entailment_score = full_result["entailment"]
             contradiction_score = full_result["contradiction"]
             neutral_score = full_result["neutral"]
+            is_entailed = entailment_score >= self.threshold
             
             # Label: highest probability wins, but be more careful about contradiction
             if entailment_score >= self.threshold:
@@ -332,9 +564,10 @@ class EntailmentVerifier:
             verification_results.append({
                 "claim": claim,
                 "is_entailed": is_entailed,
-                "entailment_score": score,
+                "entailment_score": entailment_score,
                 "contradiction_score": contradiction_score,
                 "neutral_score": neutral_score,
+                "verification_method": full_result.get("method", "unknown"),
                 "label": label,
                 "threshold": self.threshold
             })
@@ -360,5 +593,6 @@ class EntailmentVerifier:
     
     def set_threshold(self, threshold: float):
         """Update entailment threshold."""
+        if not 0.0 <= threshold <= 1.0:
+            raise ValueError("threshold must be between 0 and 1")
         self.threshold = threshold
-

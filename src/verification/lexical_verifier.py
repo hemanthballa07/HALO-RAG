@@ -20,6 +20,8 @@ class LexicalOverlapVerifier:
         Args:
             threshold: Minimum token overlap ratio for entailment
         """
+        if not 0.0 <= threshold <= 1.0:
+            raise ValueError("threshold must be between 0 and 1")
         self.threshold = threshold
     
     def _tokenize(self, text: str) -> set:
@@ -182,5 +184,6 @@ class LexicalOverlapVerifier:
     
     def set_threshold(self, threshold: float):
         """Update entailment threshold."""
+        if not 0.0 <= threshold <= 1.0:
+            raise ValueError("threshold must be between 0 and 1")
         self.threshold = threshold
-

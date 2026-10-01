@@ -2,6 +2,114 @@
 
 This directory contains experiment scripts for the HALO-RAG project.
 
+## Verifier challenge set
+
+`evaluate_verifier_challenges.py` runs six pairs of labeled examples from
+`fixtures/verifier_challenges.json`. Each pair holds the answer and passage
+fixed while changing a relation, action, entity name, or formula in the
+question. The report counts false accepts and identifies the scoring method.
+
+```bash
+python experiments/evaluate_verifier_challenges.py \
+  --output results/metrics/verifier_challenges.json
+```
+
+The command reports results without failing by default. Use
+`--max-false-accepts 0` to make it fail when any unsupported answer passes.
+This is a targeted regression challenge, not an estimate of real-world
+accuracy. It loads the NLI model and may need an available model cache.
+
+## Paired question-answering benchmark
+
+`run_representative_benchmark.py` compares revision disabled and enabled on the
+same seeded SQuAD v2 validation cases. It builds the retrieval corpus before
+choosing questions, includes unrelated passages, and uses distinct source passages
+for the selected questions. Half the questions are unanswerable. It saves the
+selected question IDs, passage hashes, model names, dependency versions, individual
+predictions, and split summary metrics.
+It records both initial retrieval/reranking IDs and final evidence IDs after any
+revision, so those stages can be evaluated separately.
+
+```bash
+python experiments/run_representative_benchmark.py \
+  --questions 20 --corpus-size 500 --seed 42 \
+  --top-k-retrieve 20 --top-k-rerank 5 --max-revisions 1
+```
+
+Output: `results/metrics/representative_benchmark.json`. A small run is a
+diagnostic sample, not a release-grade performance estimate. Exact match is
+strict; a nonexact answer may still be partially useful, so inspect F1 and
+per-question predictions too. The `false_accept_rate` is reported only for
+unanswerable questions and counts verified non-abstaining answers;
+`unanswerable_answer_rate` counts every nonempty non-abstaining answer.
+
+## Focused no-answer prompt
+
+`evaluate_focused_answers.py` reads a saved paired benchmark, checks that its
+question IDs and passage hashes still match the dataset, and runs the generator
+against only the top reranked passage. The prompt permits an explicit
+`UNANSWERABLE` response. It scores the same references as the paired benchmark.
+
+```bash
+python experiments/evaluate_focused_answers.py \
+  --benchmark results/metrics/representative_benchmark.json
+```
+
+The output is saved beside the source file with `_top1_abstain` added to its name.
+Use `--prompt standard` to measure passage selection without changing the
+generator prompt.
+This trial does not rerun retrieval, verification, or revision. It is an
+experimental answer-generation setting, not a substitute for an end-to-end
+pipeline comparison.
+
+For an end-to-end comparison on the same sampled corpus and questions, run
+`run_representative_benchmark.py` with `--include-focused`. That third variant
+uses the top reranked passage and explicit no-answer prompt, verifies generated
+answers, and leaves revision disabled. The result includes its per-question
+latency and abstention alongside the baseline and revision variants.
+
+To combine compatible runs, pass their result files to
+`summarize_paired_benchmarks.py`:
+
+```bash
+python experiments/summarize_paired_benchmarks.py \
+  results/metrics/benchmark_seed1.json \
+  results/metrics/benchmark_seed2.json \
+  --output results/metrics/paired_summary.json
+```
+
+The summary checks that the dataset, models, configuration, retrieval settings,
+variants, and source fingerprint match. Rerun earlier seeds after a verifier
+change; results from different source revisions cannot be combined. It reports
+split scores, paired improvements and harms, and median and 95th-percentile
+latency. It also lists repeated question IDs across runs; repeated questions
+should not be treated as independent observations.
+
+If label-based errors need review, export the nonexact cases without running
+the models again:
+
+```bash
+python experiments/export_benchmark_review.py \
+  results/metrics/benchmark_seed1.json \
+  results/metrics/benchmark_seed2.json \
+  --variant focused \
+  --output results/human_eval/focused_review.csv
+```
+
+The CSV contains both the source passage and the passage used by the pipeline.
+The human judgment columns are intentionally blank. The exporter refuses to
+overwrite an existing review file.
+
+To review only verified answers to source-unanswerable questions, add
+`--scope false-accepts`. This is the benchmark's false-accept definition, not
+an independent judgment that the retrieved passage fails to support the answer.
+
+Once an independent reviewer fills those columns, run
+`score_benchmark_review.py` to validate the labels and count supported,
+unsupported, irrelevant, and unclear answers. See
+`results/human_eval/README.md` for the labels and command. This targeted
+nonexact subset cannot estimate factuality across the full benchmark.
+
 ## Experiments
 
 ### Experiment 1: Baseline Comparison
@@ -78,6 +186,21 @@ python experiments/exp3_threshold_tuning.py --split validation
 python experiments/exp3_threshold_tuning.py --dry-run
 ```
 
+### Experiment 4: Revision Strategies
+**File**: `exp4_revision_strategies.py`
+
+Compares the verified pipeline with revision disabled and enabled, then reports paired
+metric comparisons and revision frequency.
+
+**Output**:
+- `results/metrics/exp4_revision_strategies.json`
+
+**Usage**:
+```bash
+python experiments/exp4_revision_strategies.py --split validation
+python experiments/exp4_revision_strategies.py --dry-run --no-wandb
+```
+
 ### Experiment 5: Self-Consistency Decoding
 **File**: `exp5_self_consistency.py`
 
@@ -116,6 +239,12 @@ python experiments/exp5_self_consistency.py --dry-run
 
 Collects verified data (FP ≥ 0.85) and fine-tunes FLAN-T5 iteratively.
 
+This experiment requires CUDA and `bitsandbytes`; it intentionally exits before model
+loading when those requirements are unavailable.
+The final experiment runner checks this before starting any of the eight experiments.
+If an iteration collects no examples above the verification threshold, the run fails
+instead of skipping training and publishing a baseline-only result.
+
 **Features**:
 - Collect verified training data with Factual Precision ≥ 0.85
 - Create training triples: (question, top-k passages, verified_answer)
@@ -139,7 +268,7 @@ Collects verified data (FP ≥ 0.85) and fine-tunes FLAN-T5 iteratively.
 # Full experiment (3 iterations)
 python experiments/exp6_iterative_training.py --iterations 3
 
-# Dry run (≤100 examples)
+# Dry run (at most 100 training and 100 validation examples)
 python experiments/exp6_iterative_training.py --dry-run
 
 # Custom limit
@@ -227,7 +356,7 @@ python experiments/exp8_stress_test.py --limit 100 --split validation
 
 **Acceptance Criteria**:
 - Verified RAG dominates baseline on Pareto plot (higher EM & factuality)
-- τ ≈ 0.75–0.80 yields best Verified F1 (≥ 0.52)
+- Select τ from the measured validation trade-off and report whether Verified F1 reaches 0.52
 - Retrieval quality correlates strongly with factual precision
 - Artifacts + plots saved and logged (W&B optional)
 
@@ -256,10 +385,16 @@ python experiments/generate_human_eval_samples.py --num-samples 100 --split vali
 python experiments/score_human_eval.py --csv results/human_eval/human_eval_samples.csv
 ```
 
+The generator requires the requested sample count and stops if a sample fails.
+It will not replace an existing CSV; pass `--output` for a new sheet. The scorer
+requires all human labels and will not replace an existing JSON report. Pass
+`--output` there too when scoring a new review. If both sides assign one label
+to every sample, Cohen's κ is undefined and the report records `null`.
+
 **Acceptance Criteria**:
-- 100 rows generated; annotators can fill in human_label
-- Scorer runs end-to-end and reports agreement ≥ 0.85
-- Cohen's κ ≥ 0.70 (substantial agreement)
+- 100 rows generated and independently annotated
+- Scorer runs end-to-end and reports observed agreement
+- Cohen's κ is reported when defined by the observed labels
 
 ## CLI Arguments
 
@@ -373,4 +508,3 @@ checkpoints/
 - All experiments log commit hash and timestamp
 - Metrics are saved locally regardless of W&B availability
 - Dry run uses 30 samples for quick testing
-

@@ -5,7 +5,7 @@ Implements t-tests and bootstrap confidence intervals.
 
 import numpy as np
 from scipy import stats
-from typing import List, Tuple, Optional, Dict
+from typing import Any, List, Tuple, Optional, Dict
 
 
 class StatisticalTester:
@@ -39,8 +39,10 @@ class StatisticalTester:
         Returns:
             Tuple of (t_statistic, p_value, is_significant)
         """
+        if len(group1) < 2 or len(group2) < 2:
+            return float("nan"), float("nan"), False
         t_stat, p_value = stats.ttest_ind(group1, group2, alternative=alternative)
-        is_significant = p_value < self.alpha
+        is_significant = bool(p_value < self.alpha)
         
         return float(t_stat), float(p_value), is_significant
     
@@ -63,9 +65,11 @@ class StatisticalTester:
         """
         if len(group1) != len(group2):
             raise ValueError("Groups must have same length for paired t-test")
+        if len(group1) < 2:
+            return float("nan"), float("nan"), False
         
         t_stat, p_value = stats.ttest_rel(group1, group2, alternative=alternative)
-        is_significant = p_value < self.alpha
+        is_significant = bool(p_value < self.alpha)
         
         return float(t_stat), float(p_value), is_significant
     
@@ -144,6 +148,10 @@ class StatisticalTester:
         if len(data) == 0:
             return (0.0, 0.0, (0.0, 0.0))
         
+        if len(data) == 1:
+            value = float(data[0])
+            return value, 0.0, (value, value)
+
         mean = np.mean(data)
         std = np.std(data, ddof=1)
         
@@ -164,7 +172,7 @@ class StatisticalTester:
         baseline_scores: List[float],
         proposed_scores: List[float],
         metric_name: str = "metric"
-    ) -> Dict[str, any]:
+    ) -> Dict[str, Any]:
         """
         Compare baseline vs proposed scores with statistical testing.
         
@@ -185,7 +193,7 @@ class StatisticalTester:
         improvement_pct = (improvement / baseline_mean * 100) if baseline_mean > 0 else 0.0
         
         # T-test
-        t_stat, p_value, is_significant = self.t_test(
+        t_stat, p_value, is_significant = self.paired_t_test(
             baseline_scores,
             proposed_scores,
             alternative="less"  # Test if proposed > baseline
@@ -206,4 +214,3 @@ class StatisticalTester:
             "is_significant": is_significant,
             "alpha": self.alpha
         }
-

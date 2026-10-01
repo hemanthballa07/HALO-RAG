@@ -1,488 +1,119 @@
-# Implementation Status Report
+# Implementation status
 
-## Overview
-This document compares the project proposal requirements against the current implementation status.
+## Available components
 
----
+- Hybrid FAISS and BM25 retrieval with cross-encoder reranking
+- FLAN-T5 generation with optional CUDA QLoRA adapters
+- Claim extraction and checkpoint-aware NLI label mapping
+- Entailment-based verification and three adaptive revision strategies
+- SQuAD v2, Natural Questions, and HotpotQA loaders with a shared schema
+- Retrieval, answer-quality, factuality, coverage, FEVER-style, and abstention metrics
+- Experiments 1 through 9 plus a human-evaluation workflow
+- Dependency-free regression tests, repository validation, and GitHub Actions CI
 
-## ✅ Fully Implemented Components
+## Operational status
 
-### 1. Core Pipeline Architecture
-- ✅ End-to-end Self-Verification RAG Pipeline (`src/pipeline/rag_pipeline.py`)
-- ✅ Modular component design (retrieval, generation, verification, revision)
-- ✅ Configuration management (`config/config.yaml`)
+The lightweight quality gate passes without downloading models:
 
-### 2. Retrieval System
-- ✅ Hybrid retrieval (Dense FAISS + Sparse BM25)
-  - ✅ Dense: `sentence-transformers/all-mpnet-base-v2` with FAISS
-  - ✅ Sparse: BM25 with `rank-bm25`
-  - ✅ Fusion: 0.6 dense + 0.4 sparse weights
-- ✅ Cross-encoder reranker (`cross-encoder/ms-marco-MiniLM-L-6-v2`)
-- ✅ Retrieval metrics: Recall@K, MRR, NDCG@10
-
-### 3. Generation System
-- ✅ FLAN-T5-Large generator (`google/flan-t5-large`)
-- ✅ QLoRA fine-tuning support (4-bit NF4, r=16, α=32)
-- ✅ QLoRA trainer (`src/generator/qlora_trainer.py`)
-- ✅ Multiple decoding strategies (greedy, beam, nucleus)
-
-### 4. Verification System
-- ✅ Entailment verifier (`microsoft/deberta-v3-large`)
-- ✅ Claim extractor (spaCy SVO extraction)
-- ✅ Factual precision/recall computation
-- ✅ Hallucination rate computation
-- ✅ Threshold-based verification (τ)
-
-### 5. Revision Strategies
-- ✅ Adaptive revision module (`src/revision/adaptive_strategies.py`)
-- ✅ Re-retrieval strategy
-- ✅ Constrained generation strategy
-- ✅ Claim-by-claim regeneration strategy
-
-### 6. Evaluation Metrics
-- ✅ Retrieval metrics: Recall@K, Precision@K, MRR, NDCG@K
-- ✅ Generation metrics: Exact Match, F1 Score
-- ✅ Verification metrics: Factual Precision, Factual Recall, Hallucination Rate
-- ✅ Statistical testing: t-tests, bootstrap CI
-
-### 7. Experiments Framework
-- ✅ Exp1: Baseline comparison
-- ✅ Exp2: Retrieval comparison (dense vs sparse vs hybrid)
-- ✅ Exp3: Threshold tuning
-- ✅ Exp4: Revision strategies
-- ✅ Exp5: Decoding strategies
-- ✅ Exp6: Iterative training
-- ✅ Exp7: Ablation study
-- ✅ Exp8: Stress testing
-
----
-
-## ✅ Metrics – Fixed
-
-### 1. Verified F1 Calculation ✅ **FIXED**
-**Proposal Requirement (Section 3.1 Stage 4):**
-```
-Verified F1 = F1 × Factual Precision
-```
-**Previous Implementation (INCORRECT):**
-```python
-# Computed harmonic mean of factual precision and recall
-verified_f1 = 2 * (factual_precision * factual_recall) / (factual_precision + factual_recall)
+```bash
+python -m pip install -r requirements-dev.txt
+make check
 ```
 
-**Fixed Implementation:**
-```python
-def verified_f1(self, f1_score: float, factual_precision: float) -> float:
-    """Compute Verified F1 = F1 × Factual Precision"""
-    return f1_score * factual_precision
-```
-
-**Reason for Change:**
-- The proposal explicitly defines Verified F1 as `F1 × Factual Precision` to show "factuality AND quality together"
-- Examples: Baseline RAG (F1=0.60, Factual Precision=0.70 → Verified F1=0.42)
-- This multiplication form accurately reflects the composite nature of the metric
-
-**Expected Outcome:**
-- Verified F1 now accurately reflects both answer quality (F1) and factuality (Factual Precision)
-- Downstream experiments (τ tuning, revision, iterative training) will report valid composite results
-- Metric values will be lower than harmonic mean, but more accurate for measuring verified performance
-
-**Validation:**
-- Test case: F1=0.60, Factual Precision=0.70 → Verified F1=0.42 ✓
-- Test case: F1=0.58, Factual Precision=0.92 → Verified F1=0.53 ✓
-
-### 2. Coverage Index ✅ **FIXED**
-**Proposal Requirement:**
-```
-Coverage Index = (answer tokens in retrieved docs) / (total answer tokens)
-Target: Coverage ≥ 0.90
-```
-
-**Previous Implementation (INCORRECT):**
-```python
-# Computed fraction of corpus covered, not answer token coverage
-coverage = unique_docs / corpus_size
-```
-
-**Fixed Implementation:**
-```python
-def coverage(self, answer_text: str, retrieved_texts: List[str]) -> float:
-    """Compute Coverage Index: answer tokens in retrieved docs / total answer tokens"""
-    answer_tokens = set(answer_text.lower().split())
-    retrieved_tokens = set(" ".join(retrieved_texts).lower().split())
-    answer_tokens_in_retrieved = answer_tokens & retrieved_tokens
-    return len(answer_tokens_in_retrieved) / len(answer_tokens)
-```
-
-**Reason for Change:**
-- The proposal requires measuring if answer tokens appear in retrieved evidence, not corpus diversity
-- Coverage Index measures evidence linkage: how much of the answer is supported by retrieved documents
-- This is critical for verifying that answers are grounded in retrieved evidence
-
-**Expected Outcome:**
-- Coverage Index now reflects true evidence linkage between answers and retrieved documents
-- Low coverage indicates answers contain tokens not present in evidence (potential hallucination)
-- High coverage (≥0.90) indicates answers are well-grounded in retrieved evidence
-- This metric complements factual precision by measuring token-level evidence support
-
-**Validation:**
-- Test case: All answer tokens in retrieved texts → Coverage > 0.9 ✓
-- Test case: Partial token overlap → Coverage reflects actual overlap ✓
-
-**Files Updated:**
-- `src/evaluation/metrics.py`: Fixed `verified_f1()` and `coverage()` methods
-- `src/evaluation/metrics.py`: Updated `compute_all_metrics()` to use corrected metrics
-- `src/pipeline/rag_pipeline.py`: Updated to pass `retrieved_texts` for coverage calculation
-- `experiments/exp5_decoding_strategies.py`: Updated to pass `retrieved_texts` parameter
-- `tests/test_basic_functionality.py`: Updated test cases to validate corrected metrics
-- `tests/test_metrics_validation.py`: Added validation test for corrected metrics
-
-**Git Branch:** `fix/metrics-verifiedf1-coverage`
-
-### 3. FAISS Index Configuration ⚠️ **SUBPOPTIMAL**
-**Proposal Requirement:**
-```
-FAISS IVF4096, PQ64 index (21M Wikipedia passages)
-```
-
-**Current Implementation:**
-```python
-# Uses simple IndexFlatIP (exact search, not optimized for large scale)
-self.faiss_index = faiss.IndexFlatIP(self.embedding_dim)
-```
-
-**Issue:** For 21M passages, should use IVF4096 + PQ64 for efficient approximate search.
-
-**Fix Required:** Implement IVF4096 + PQ64 index for scalability.
-
----
-
-## ❌ Missing Components
-
-### 1. Missing Metrics
-
-#### FEVER Score ✅ **IMPLEMENTED**
-**Proposal Requirement:**
-```
-FEVER Score = harmonic_mean(label_accuracy × evidence_recall)
-```
-**Status:** ✅ Implemented
-- Label accuracy: Fraction of claims correctly labeled (SUPPORTED)
-- Evidence recall: Fraction of ground truth tokens found in retrieved evidence
-- Harmonic mean of both components
-
-#### FactCC Score ❌
-**Proposal Requirement:**
-```
-FactCC Score: Correlation with human factual judgments
-```
-**Status:** Not implemented (lower priority, can use pretrained FactCC if available)
-
-#### BLEU-4 ✅ **IMPLEMENTED**
-**Proposal Requirement:**
-```
-BLEU-4: Text similarity for multi-sentence answers (use for HotpotQA)
-```
-**Status:** ✅ Implemented using NLTK's sentence_bleu with smoothing
-- Uses 4-gram precision with equal weights (0.25, 0.25, 0.25, 0.25)
-- Includes smoothing function for handling zero counts
-
-#### ROUGE-L ✅ **IMPLEMENTED**
-**Proposal Requirement:**
-```
-ROUGE-L: Text similarity for multi-sentence answers
-```
-**Status:** ✅ Implemented using rouge-score package
-- Measures longest common subsequence (LCS) based F-score
-- Uses stemmer for better matching
-
-#### Abstention Rate ✅ **IMPLEMENTED**
-**Proposal Requirement:**
-```
-Abstention Rate: % of "insufficient evidence" responses
-Should ↑ as verification strengthens
-```
-**Status:** ✅ Implemented
-- Detects common abstention phrases ("cannot answer", "insufficient evidence", etc.)
-- Returns 1.0 for abstention, 0.0 for normal answers
-- Can be aggregated across multiple examples to get overall abstention rate
-
-### 2. Missing Features
-
-#### Self-Consistency Decoding ❌
-**Proposal Requirement (Exp5):**
-```
-Self-consistency: Generate 5 samples at T=0.7, verify each, majority vote
-```
-**Status:** Exp5 implements greedy/beam/nucleus but not self-consistency with voting
-
-#### Iterative Training Data Collection ❌
-**Proposal Requirement (Exp6):**
-```
-Collect answers with Factual Precision ≥ 0.85 as verified training data
-Fine-tune generator on (question, top-5 passages, verified_answer) triples
-```
-**Status:** Exp6 trains on full dataset, doesn't filter by factual precision threshold
-
-#### Answer-Aware Re-Retrieval ❌
-**Proposal Requirement:**
-```
-Use generated_answer + question as new query, retrieve additional top-5 passages
-```
-**Status:** Revision strategy expands query with failed claims, but doesn't use full answer
-
-#### Coverage Index for Answer Tokens ❌
-**Proposal Requirement:**
-```
-Coverage Index = (answer tokens in retrieved docs) / (total answer tokens)
-```
-**Status:** Not implemented (see issue #2 above)
-
-### 3. Missing Evaluation Components
-
-#### Human Evaluation ❌
-**Proposal Requirement (Section 3.1 Stage 5):**
-```
-Human Validation (100 samples):
-- SUPPORTED: All claims backed by retrieved evidence
-- CONTRADICTED: Contains claims contradicting evidence
-- NO EVIDENCE: Contains unsupported claims (hallucination)
-
-Human-Verifier Agreement: ≥ 0.85
-```
-**Status:** No human evaluation framework implemented
-
-#### Data Diversity Monitoring ❌
-**Proposal Requirement (Exp6):**
-```
-Monitor data diversity: lexical variety (type-token ratio), syntactic complexity
-```
-**Status:** Not implemented
-
-### 4. Dataset Integration
-
-#### Dataset Loading ✅ **IMPLEMENTED**
-**Proposal Requirement:**
-```
-Datasets: SQuAD v2.0, Natural Questions, HotpotQA, FEVER
-Corpus: Wikipedia 2018 dump (21M passages)
-```
-**Status:** ✅ Implemented unified dataset loaders
-
-**Supported Datasets:**
-- ✅ **SQuAD v2.0**: ~150K examples (includes unanswerable questions)
-- ✅ **Natural Questions (NQ)**: ~300K examples (complex HTML structure)
-- ✅ **HotpotQA**: ~113K examples (multi-hop questions)
-
-**Unified Schema:**
-All datasets are normalized to a unified schema:
-```python
-{
-    "id": str,              # Unique example ID
-    "question": str,        # Question text (normalized)
-    "context": str,         # Context/document text (normalized)
-    "answers": List[str]    # List of answers (empty list if unanswerable)
-}
-```
-
-**Features:**
-- ✅ Text normalization (whitespace, quotes, special characters)
-- ✅ Validation (skips examples with empty question/context)
-- ✅ Support for unanswerable questions (empty answers list)
-- ✅ Configurable sample limits for testing
-- ✅ Cache directory support for offline runs
-- ✅ Dataset selection via config (`datasets.active`)
-
-**Implementation:**
-- `src/data/loaders.py`: Unified loaders for all datasets
-- `src/data/__init__.py`: Public API for dataset loading
-- `experiments/check_dataset_loading.py`: Verification script
-- `config/config.yaml`: Dataset configuration
-
-**Usage:**
-```python
-from src.data import load_dataset
-
-# Load dataset
-examples = load_dataset(
-    dataset_name="squad_v2",
-    split="train",
-    limit=100,  # Optional: limit for testing
-    cache_dir="~/.cache/huggingface/datasets/"
-)
-
-# Prepare for experiments
-from src.data import prepare_for_experiments
-queries, ground_truths, relevant_docs, corpus = prepare_for_experiments(examples)
-```
-
-**Validation:**
-- Schema validation: All examples match unified schema
-- Non-empty ratio: ≥95% for answerable questions (SQuAD v2 has unanswerable Qs)
-- Text normalization: Whitespace, quotes, special characters handled
-- Error handling: Graceful handling of missing fields
-
-**Sanity Check Results:**
-- ✅ SQuAD v2: Loads correctly, handles unanswerable questions
-- ✅ Natural Questions: Extracts text from tokenized documents
-- ✅ HotpotQA: Combines multi-paragraph contexts
-- ✅ All datasets return normalized examples matching unified schema
-
-**Notes:**
-- Natural Questions has complex HTML structure - loader extracts text from tokens
-- HotpotQA combines multiple context paragraphs into single context
-- SQuAD v2 properly handles `is_impossible` flag for unanswerable questions
-- All loaders skip invalid examples (empty question/context) automatically
-
-**Testing:**
-Run `python experiments/check_dataset_loading.py` to verify dataset loading:
-- Loads dataset from config
-- Validates schema
-- Prints sample examples
-- Reports statistics (total, answerable, unanswerable)
-- Saves preview to `data/sample_preview.json`
-
-#### FEVER Dataset ❌
-**Proposal Requirement:**
-```
-FEVER: 185K fact verification claims (train verification module)
-```
-**Status:** Not implemented (FEVER is for training verification module, not for QA experiments)
-**Note:** FEVER dataset is used for training the entailment verifier, not for QA evaluation. This is a separate use case.
-
-#### FAISS Index Building for Wikipedia ❌
-**Proposal Requirement:**
-```
-Build FAISS index on Wikipedia (21M passages), version and timestamp
-```
-**Status:** Index building exists but no Wikipedia corpus integration
-
-### 5. Missing Experiment Features
-
-#### Exp3: Threshold Sweep Visualization ❌
-**Proposal Requirement:**
-```
-Plot Factual Precision vs. Answer Recall curve
-Pareto frontier visualization
-```
-**Status:** Exp3 has plotting functions but may need enhancement
-
-#### Exp6: Verified Data Collection ❌
-**Proposal Requirement:**
-```
-Generate 10K answers on train set, verify, collect 5K with Factual Precision ≥ 0.85
-```
-**Status:** Exp6 doesn't implement verified data filtering
-
-#### Exp8: Pareto Analysis ❌
-**Proposal Requirement:**
-```
-Plot Pareto frontier: X-axis = EM, Y-axis = (1 - Hallucination Rate)
-3-panel plot: Threshold vs. Metrics, Recall@20 vs. Factual Precision, Pareto frontier
-```
-**Status:** Exp8 exists but may need visualization enhancements
-
-### 6. Missing Logging and Reproducibility
-
-#### Deterministic Logging ❌
-**Proposal Requirement (Section 3.1 Stage 6):**
-```
-Every experiment logs:
-- Dataset: name, split, commit hash
-- Retriever: model version, FAISS index ID, build timestamp
-- Generator: checkpoint path, training iteration number
-- Verifier: model name, threshold τ
-- All metrics: EM, F1, Recall@k, MRR, NDCG, Coverage, Factual Precision/Recall, FEVER, FactCC, Verified F1, Abstention Rate
-
-Storage: W&B run with tagged artifacts + local JSON backup
-```
-**Status:** Basic JSON logging exists, but missing:
-- Commit hashes
-- Index IDs and timestamps
-- W&B integration (wandb in requirements but not used)
-- Comprehensive metric logging
-
----
-
-## 🔧 Implementation Priority
-
-### High Priority (Critical for Proposal)
-1. ✅ **Fix Verified F1 calculation** - COMPLETED: Now uses F1 × Factual Precision
-2. ✅ **Implement Coverage Index** - COMPLETED: Now measures answer token coverage
-3. ✅ **Add FEVER Score** - COMPLETED: Harmonic mean of label accuracy and evidence recall
-4. ✅ **Add BLEU-4 and ROUGE-L** - COMPLETED: For multi-sentence answers (HotpotQA)
-5. ✅ **Add Abstention Rate** - COMPLETED: Tracks insufficient evidence responses
-6. ✅ **Implement dataset loading** - COMPLETED: SQuAD v2, NQ, HotpotQA with unified schema
-7. **Fix iterative training** - Filter by Factual Precision ≥ 0.85
-
-### Medium Priority (Important for Completeness)
-8. **Add FactCC Score** - Mentioned in proposal (lower priority)
-9. **Implement self-consistency decoding** - Exp5 requirement
-10. **Integrate W&B logging** - For experiment tracking and reproducibility
-11. **Implement human evaluation framework** - Stage 5 requirement
-12. **Optimize FAISS index** - IVF4096 + PQ64 for scalability
-
-### Low Priority (Nice to Have)
-13. **Data diversity monitoring** - Exp6 enhancement
-14. **Enhanced visualizations** - Pareto frontiers, 3-panel plots
-15. **Answer-aware re-retrieval enhancement** - Use full answer in query expansion
-
----
-
-## 📊 Summary Statistics
-
-- **Fully Implemented:** ~70%
-- **Partially Implemented / Needs Fixing:** ~15%
-- **Missing:** ~15%
-
-### Component Breakdown:
-- ✅ Core Pipeline: 100%
-- ✅ Retrieval: 90% (missing optimized FAISS index)
-- ✅ Generation: 95% (missing self-consistency)
-- ✅ Verification: 90% (missing FEVER/FactCC)
-- ✅ Revision: 85% (missing answer-aware enhancement)
-- ✅ Evaluation: 60% (missing several metrics)
-- ✅ Experiments: 80% (missing verified data collection, human eval)
-- ✅ Logging: 40% (missing W&B, comprehensive logging)
-
----
-
-## 🎯 Recommendations
-
-1. **Immediate Fixes:**
-   - Fix Verified F1 calculation to match proposal (F1 × Factual Precision)
-   - Implement Coverage Index for answer tokens
-   - Add FEVER, BLEU-4, ROUGE-L metrics
-
-2. **Dataset Integration:**
-   - Implement dataset loaders for SQuAD v2, NQ, HotpotQA
-   - Build Wikipedia corpus index
-   - Add dataset versioning and commit hashes
-
-3. **Experiment Completion:**
-   - Fix Exp6 to filter verified data (Factual Precision ≥ 0.85)
-   - Add self-consistency to Exp5
-   - Implement human evaluation framework
-
-4. **Logging and Reproducibility:**
-   - Integrate W&B for experiment tracking
-   - Add comprehensive logging (index IDs, timestamps, commit hashes)
-   - Ensure all metrics are logged
-
-5. **Documentation:**
-   - Update METHODS.md to reflect actual implementation
-   - Document any deviations from proposal
-   - Add usage examples for each experiment
-
----
-
-## 📝 Notes
-
-- The proposal has an internal inconsistency: Section 3.1 Stage 4 defines Verified F1 as `F1 × Factual Precision`, while METHODS.md defines it as harmonic mean. The code implements harmonic mean, but the proposal examples use multiplication. **Recommendation: Follow Section 3.1 Stage 4 definition (multiplication)** as it's more explicit and matches the examples.
-
-- Coverage Index definition is ambiguous in some places. The proposal clearly states it should be answer token coverage, which is the correct interpretation.
-
-- Some experiments are scaffolded but need dataset integration to run end-to-end.
-
-- The codebase is well-structured and modular, making it easy to add missing components.
-
+End-to-end experiments require the runtime dependency set, model downloads, dataset
+downloads, and substantially more local storage. Experiment 6 additionally requires a
+CUDA host with `bitsandbytes`.
+
+## Known limits
+
+- Short-answer verification now checks whether an answer-bearing sentence
+  shares content terms with the question before using a direct-match shortcut.
+  This catches obvious unrelated matches, but lexical co-occurrence is not a
+  complete answer-support test. The NLI fallback also makes mistakes.
+- The current FAISS implementation uses an exact inner-product index. It is appropriate
+  for the sampled experiment corpora but should be replaced with a trained approximate
+  index before indexing millions of passages.
+- Automatic verification reduces unsupported claims but cannot guarantee factuality.
+- Metric targets in `config/config.yaml` are research goals and need to be established by
+  fresh runs on the chosen dataset and hardware.
+- The root `final_run_results.zip` is a historical archive produced before the current
+  loader, retrieval, and verifier corrections. It is retained for provenance and should
+  not be treated as a current benchmark result.
+
+## Exploratory CPU check
+
+On September 22, 2026, three seeded SQuAD v2 validation samples used 20 questions
+and 500 passages each, with 10 answerable and 10 unanswerable questions per seed.
+The same cached FLAN-T5 large model generated the answers in all comparisons.
+The baseline and revision runs below preceded the verifier shortcut guard.
+
+| Seed | Baseline exact match | Revision exact match | Top-passage no-answer exact match |
+| --- | ---: | ---: | ---: |
+| 42 | 35% | 45% | 75% |
+| 123 | 30% | 40% | 55% |
+| 456 | 30% | 30% | 75% |
+
+The top-passage result reuses the saved reranking order and reruns generation only.
+It does not include verification or revision. Across these 60 sampled questions,
+its exact match was 68.3%, including 56.7% on the 30 unanswerable questions.
+The samples were used while developing the prompt, so they are not a held-out
+estimate of production accuracy. Local per-question results are under
+`results/metrics/benchmark_20q_500docs_seed*_top1_abstain.json` and are ignored
+by Git. Broader untouched samples are still required.
+
+A verifier-only replay of the saved baseline answers on those same three samples
+reduced verified answers for unanswerable questions from 24 to 18 out of 30.
+It kept all 19 previously verified exact answers verified. This replay held
+retrieval and generation fixed, and it is not a new end-to-end score. False
+acceptance remains substantial, so the verifier needs further work.
+
+A separate seed 789 run tested all three variants end to end on the same
+20 questions and 500 passages. This seed was not used to select the prompt,
+but one small sample is not a release estimate.
+
+| Variant | Overall exact match | Answerable | Unanswerable | Unanswerable false accept | Mean CPU latency |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Baseline | 45% | 90% | 0% | 30% | 2.41 s |
+| Revision | 65% | 70% | 60% | 40% | 2.62 s |
+| Focused, no revision | 95% | 100% | 90% | 0% | 1.06 s |
+
+The focused variant abstained on 9 of 10 unanswerable questions. Its one
+non-abstaining answer was wrong and was not verified. These figures are from
+`results/metrics/benchmark_20q_500docs_seed789_with_focused.json`, which is
+ignored by Git. More seeds, other datasets, and the target CUDA environment
+must be checked before choosing a default.
+
+## Larger paired CPU check
+
+Two further runs used seeds 2026 and 2027, each with 40 SQuAD v2 validation
+questions and a separate 1,000-passage corpus. The configurations and model
+versions matched, and the selected question IDs did not overlap across runs.
+The pooled figures below cover 80 questions, split evenly by answerability.
+
+| Variant | Overall exact match | Answerable | Unanswerable | Label-based false accept | CPU latency p50 / p95 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Baseline | 35% | 70% | 0% | 60% | 1.63 / 3.81 s |
+| Revision | 45% | 60% | 30% | 70% | 1.57 / 4.75 s |
+| Focused, no revision | 70% | 80% | 60% | 25% | 0.97 / 1.74 s |
+
+Focused improved exact match on 31 paired questions and harmed it on 3,
+relative to baseline. Latency covers per-question retrieval through output on
+this CPU host; it excludes model loading and index construction. The 95% result
+on seed 789 did not persist in these larger samples. Do not choose a default
+from these results alone.
+
+The false-accept column counts verified non-abstaining answers on questions
+labeled unanswerable by SQuAD v2. Several reviewed passages contain plausible
+answers despite that label, so this number is not a direct hallucination rate.
+The 24 nonexact focused cases were exported to
+`results/human_eval/focused_seed2026_2027_review.csv` for separate relevance
+and evidence-support judgments. The individual runs and combined summary are
+under `results/metrics/benchmark_40q_1000docs_*`; these local artifacts are
+ignored by Git. Human review, other datasets, and a target-hardware run remain
+open before release.
+
+## Validation required for a release
+
+Run the full experiment matrix on the target CUDA environment, inspect the generated
+plots, complete human annotation, and record the exact commit, dependency lock, dataset
+revision, seeds, and hardware used for the published results.

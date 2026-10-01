@@ -1,143 +1,45 @@
-#!/usr/bin/env python3
-"""
-Basic functionality test after dependencies are installed
-Tests core components with minimal data
-"""
+"""Fast checks for metric and statistical helper behavior."""
 
-import sys
-import os
-import numpy as np
+import json
+import unittest
 
-# Add project root to path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from src.evaluation import EvaluationMetrics, StatisticalTester
 
-print("=" * 70)
-print("Basic Functionality Test")
-print("=" * 70)
 
-# Test 1: Check all imports
-print("\n1. Testing imports...")
-try:
-    from src.retrieval import HybridRetriever, CrossEncoderReranker
-    from src.verification import EntailmentVerifier, ClaimExtractor
-    from src.generator import FLANT5Generator
-    from src.revision import AdaptiveRevisionStrategy
-    from src.evaluation import EvaluationMetrics, StatisticalTester
-    from src.pipeline import SelfVerificationRAGPipeline
-    print("   ✓ All modules imported successfully")
-except ImportError as e:
-    print(f"   ✗ Import error: {e}")
-    print("   Please install dependencies: pip3 install -r requirements.txt")
-    sys.exit(1)
+class EvaluationMetricTests(unittest.TestCase):
+    def setUp(self):
+        self.metrics = EvaluationMetrics()
 
-# Test 2: Check configuration
-print("\n2. Testing configuration...")
-try:
-    import yaml
-    with open('config/config.yaml', 'r') as f:
-        config = yaml.safe_load(f)
-    print("   ✓ Configuration loaded successfully")
-except Exception as e:
-    print(f"   ✗ Config error: {e}")
-    sys.exit(1)
+    def test_recall_at_k(self):
+        self.assertAlmostEqual(self.metrics.recall_at_k([0, 1, 2, 3, 4], [1, 3, 5], 5), 2 / 3)
 
-# Test 3: Test evaluation metrics
-print("\n3. Testing evaluation metrics...")
-try:
-    evaluator = EvaluationMetrics()
-    
-    # Test Recall@K
-    retrieved = [0, 1, 2, 3, 4]
-    relevant = [1, 3, 5]
-    recall = evaluator.recall_at_k(retrieved, relevant, k=5)
-    print(f"   ✓ Recall@5 calculation: {recall:.4f}")
-    
-    # Test Verified F1 (F1 × Factual Precision)
-    # Example from proposal: F1 = 0.60, Factual Precision = 0.70 → Verified F1 = 0.42
-    f1_score = 0.60
-    factual_precision = 0.70
-    verified_f1 = evaluator.verified_f1(f1_score, factual_precision)
-    expected_verified_f1 = 0.42
-    assert abs(verified_f1 - expected_verified_f1) < 0.01, f"Verified F1 should be {expected_verified_f1}, got {verified_f1}"
-    print(f"   ✓ Verified F1 calculation: {verified_f1:.4f} (expected: {expected_verified_f1:.4f})")
-    
-    # Test Coverage Index (answer tokens in retrieved docs / total answer tokens)
-    answer_text = "Paris is the capital of France"
-    retrieved_texts = [
-        "Paris is a city in France. The capital of France is Paris.",
-        "France is a country in Europe."
-    ]
-    coverage = evaluator.coverage(answer_text, retrieved_texts)
-    print(f"   ✓ Coverage Index calculation: {coverage:.4f}")
-    # All answer tokens should be in retrieved texts, so coverage should be high
-    assert coverage > 0.8, f"Coverage should be high, got {coverage}"
-    
-    print("   ✓ Evaluation metrics working correctly")
-except Exception as e:
-    print(f"   ✗ Evaluation error: {e}")
-    import traceback
-    traceback.print_exc()
+    def test_verified_f1(self):
+        self.assertAlmostEqual(self.metrics.verified_f1(0.60, 0.70), 0.42)
 
-# Test 4: Test statistical testing
-print("\n4. Testing statistical testing...")
-try:
-    stats_tester = StatisticalTester(alpha=0.05)
-    
-    # Test mean/std/CI
-    data = [0.8, 0.85, 0.9, 0.88, 0.92]
-    mean, std, ci = stats_tester.mean_std_ci(data)
-    print(f"   ✓ Mean: {mean:.4f}, Std: {std:.4f}, CI: {ci}")
-    
-    # Test t-test
-    group1 = [0.8, 0.85, 0.9, 0.88, 0.92]
-    group2 = [0.75, 0.78, 0.82, 0.80, 0.85]
-    t_stat, p_value, is_sig = stats_tester.t_test(group1, group2)
-    print(f"   ✓ T-test: t={t_stat:.4f}, p={p_value:.4f}, sig={is_sig}")
-    
-    print("   ✓ Statistical testing working correctly")
-except Exception as e:
-    print(f"   ✗ Statistical testing error: {e}")
-    import traceback
-    traceback.print_exc()
+    def test_coverage(self):
+        coverage = self.metrics.coverage(
+            "Paris is the capital of France",
+            ["Paris is a city in France. The capital of France is Paris."],
+        )
+        self.assertGreater(coverage, 0.8)
 
-# Test 5: Test claim extractor (requires spaCy)
-print("\n5. Testing claim extractor...")
-try:
-    claim_extractor = ClaimExtractor()
-    test_text = "The capital of France is Paris. Paris is a major city in Europe."
-    claims = claim_extractor.extract_claims(test_text)
-    print(f"   ✓ Extracted {len(claims)} claims from test text")
-    print(f"   ✓ Claim extraction working correctly")
-except Exception as e:
-    print(f"   ⚠ Claim extractor error: {e}")
-    print("   Note: Install spaCy: pip3 install spacy")
-    print("   Then download model: python3 -m spacy download en_core_web_sm")
 
-# Test 6: Test hybrid retriever initialization (without actual model loading)
-print("\n6. Testing hybrid retriever initialization...")
-try:
-    # Just test that class can be instantiated
-    # We won't load models here to save time
-    retriever = HybridRetriever(
-        dense_weight=0.6,
-        sparse_weight=0.4,
-        device="cpu"
-    )
-    print("   ✓ HybridRetriever class initialized")
-    print("   ⚠ Note: Models will be loaded when build_index() is called")
-except Exception as e:
-    print(f"   ✗ Retriever initialization error: {e}")
-    import traceback
-    traceback.print_exc()
+class StatisticalHelperTests(unittest.TestCase):
+    def test_summary_statistics_are_finite(self):
+        mean, standard_deviation, interval = StatisticalTester().mean_std_ci(
+            [0.8, 0.85, 0.9, 0.88, 0.92]
+        )
+        self.assertGreater(mean, 0)
+        self.assertGreater(standard_deviation, 0)
+        self.assertLess(interval[0], interval[1])
 
-# Summary
-print("\n" + "=" * 70)
-print("Summary")
-print("=" * 70)
-print("✓ Core functionality tests passed!")
-print("\nNext steps:")
-print("1. Load your dataset")
-print("2. Initialize pipeline with corpus")
-print("3. Run experiments: python3 experiments/exp1_baseline.py")
-print("\n" + "=" * 70)
+    def test_comparison_is_json_serializable(self):
+        comparison = StatisticalTester().compare_metrics(
+            [0.2, 0.4, 0.3], [0.6, 0.75, 0.95]
+        )
+        self.assertIs(type(comparison["is_significant"]), bool)
+        json.dumps(comparison)
 
+
+if __name__ == "__main__":
+    unittest.main()

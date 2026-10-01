@@ -5,6 +5,7 @@ Test new metrics: FEVER Score, BLEU-4, ROUGE-L, Abstention Rate
 
 import sys
 import os
+import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.evaluation.metrics import EvaluationMetrics
@@ -51,7 +52,8 @@ def test_rouge_l():
     ground_truth = "The capital of France is Paris"
     rouge = evaluator.rouge_l(generated, ground_truth)
     print(f"✓ ROUGE-L (partial match): {rouge:.4f}")
-    assert rouge > 0.7, f"ROUGE-L should be high for partial match, got {rouge}"
+    # Four of six tokens form a common subsequence; word order limits ROUGE-L.
+    assert rouge == pytest.approx(2 / 3)
 
 
 def test_fever_score():
@@ -128,4 +130,3 @@ if __name__ == "__main__":
         import traceback
         traceback.print_exc()
         sys.exit(1)
-
