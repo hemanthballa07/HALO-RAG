@@ -178,15 +178,23 @@ class EntailmentVerifier:
 
         stemmer = PorterStemmer()
         question_words = cls._normalized_words(query)
+        leading_year = (
+            len(question_words) >= 2
+            and question_words[0] == "in"
+            and len(question_words[1]) == 4
+            and question_words[1].isdigit()
+        )
+        if leading_year:
+            question_words = question_words[2:]
         if (len(question_words) >= 6 and question_words[0] == "what"
                 and question_words[2] == "did"):
             tail = question_words[3:]
-            has_year = (len(tail) >= 3 and tail[-2] in {"in", "on", "at"}
-                        and len(tail[-1]) == 4 and tail[-1].isdigit())
-            if has_year:
+            trailing_year = (len(tail) >= 3 and tail[-2] in {"in", "on", "at"}
+                             and len(tail[-1]) == 4 and tail[-1].isdigit())
+            if trailing_year:
                 tail = tail[:-2]
             # The final word is an action only in this simple dated form.
-            if (has_year and len(tail) >= 2
+            if ((leading_year or trailing_year) and len(tail) >= 2
                     and not set(tail) & {"for", "of", "with", "by", "from", "to"}):
                 action = stemmer.stem(tail[-1])
                 if action not in {stemmer.stem(word) for word in sentence_words}:

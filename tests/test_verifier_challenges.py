@@ -27,8 +27,8 @@ FIXTURE = Path(__file__).resolve().parents[1] / "experiments/fixtures/verifier_c
 def test_challenge_fixture_has_paired_supported_and_unsupported_cases():
     cases = load_challenges(FIXTURE)
 
-    assert len(cases) == 10
-    assert sum(case["supported"] for case in cases) == 5
+    assert len(cases) == 12
+    assert sum(case["supported"] for case in cases) == 6
     assert len({case["id"] for case in cases}) == len(cases)
 
 

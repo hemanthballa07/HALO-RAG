@@ -4,7 +4,7 @@ This directory contains experiment scripts for the HALO-RAG project.
 
 ## Verifier challenge set
 
-`evaluate_verifier_challenges.py` runs ten paired, labeled examples from
+`evaluate_verifier_challenges.py` runs six pairs of labeled examples from
 `fixtures/verifier_challenges.json`. Each pair holds the answer and passage
 fixed while changing a relation, action, entity name, or formula in the
 question. The report counts false accepts and identifies the scoring method.

@@ -28,6 +28,20 @@
     "supported": false
   },
   {
+    "id": "capture_action_leading_year_supported",
+    "context": "In 1755, the British captured Fort Beauséjour.",
+    "question": "In 1755, what fort did the British capture?",
+    "answer": "Fort Beauséjour",
+    "supported": true
+  },
+  {
+    "id": "capture_action_leading_year_changed",
+    "context": "In 1755, the British captured Fort Beauséjour.",
+    "question": "In 1755, what fort did the British surrender?",
+    "answer": "Fort Beauséjour",
+    "supported": false
+  },
+  {
     "id": "castle_name_supported",
     "context": "The Royal Ujazdów Castle houses the Centre for Contemporary Art.",
     "question": "What castle houses the Centre for Contemporary Art?",

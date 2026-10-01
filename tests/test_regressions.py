@@ -425,12 +425,26 @@ class EntailmentVerifierTests(unittest.TestCase):
             "Fort Beauséjour",
             ["In 1755, the British captured Fort Beauséjour."],
             ["Fort Beauséjour"],
-            "In 1755 what fort did the British surrender?",
+            "In 1755, what fort did the British capture?",
         )
 
         claim_result = result["verification_results"][0]
         self.assertEqual(claim_result["verification_method"], "question_sentence_match")
         self.assertTrue(claim_result["is_entailed"])
+
+    def test_dated_question_does_not_match_a_different_action(self):
+        verifier_module = self.verifier_module()
+        matches = verifier_module.EntailmentVerifier._answer_sentence_matches_query
+        context = "In 1755, the British captured Fort Beauséjour."
+
+        self.assertFalse(matches(
+            "Fort Beauséjour", context,
+            "In 1755, what fort did the British surrender?",
+        ))
+        self.assertTrue(matches(
+            "Fort Beauséjour", context,
+            "In 1755, what fort did the British capture?",
+        ))
 
     def test_answer_sentence_keeps_common_abbreviations_together(self):
         verifier_module = self.verifier_module()

@@ -58,6 +58,7 @@ label. It is not an independent judgment of support in the retrieved passage.
 All four focused false accepts used `question_sentence_match`; NLI accepted no
 focused claims in this sample. The sample is too small for a production accuracy
 claim. The four cases need independent evidence review before further tuning.
+These counts describe the recorded source fingerprint, not later verifier changes.
 
 Short-answer verification still has an answerability limitation. Its lexical
 shortcut can accept an answer that appears near question terms even when the
