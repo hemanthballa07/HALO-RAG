@@ -223,12 +223,10 @@ def run_complete_pipeline_experiment(
                 }
                 log_metrics(avg_metrics, step=idx + 1, prefix="complete_pipeline/")
         
-        except Exception as e:
-            import traceback
-            print(f"Error processing query {idx}: {e}")
-            print(f"Query: {query[:100]}...")
-            traceback.print_exc()
-            continue
+        except Exception as exc:
+            raise RuntimeError(
+                f"Complete pipeline failed to process query {idx}"
+            ) from exc
     
     # Aggregate metrics
     print("\nAggregating metrics...")

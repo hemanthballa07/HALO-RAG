@@ -13,6 +13,7 @@ from experiments import exp5_self_consistency as exp5
 from experiments import exp6_iterative_training as exp6
 from experiments import exp7_ablation_study as exp7
 from experiments import exp8_stress_test as exp8
+from experiments import exp9_complete_pipeline as exp9
 
 
 METADATA = {
@@ -49,6 +50,39 @@ def test_baseline_fails_when_a_query_fails(monkeypatch):
 
     with pytest.raises(RuntimeError, match="Baseline failed to process query 1"):
         exp1.run_baseline_experiment(
+            queries=["first", "second"],
+            ground_truths=["answer", "answer"],
+            relevant_docs=[[0], [0]],
+            corpus=["answer"],
+            config={"experiments": {"device": "cpu"}},
+        )
+
+
+def test_complete_pipeline_fails_when_a_query_fails(monkeypatch):
+    class FailingPipeline:
+        def __init__(self, **_kwargs):
+            self.claim_extractor = SimpleNamespace(extract_claims=lambda _text: [])
+            self.verifier = SimpleNamespace()
+
+        def generate(self, query, **_kwargs):
+            if query == "second":
+                raise RuntimeError("generation failed")
+            return {
+                "generated_text": "answer",
+                "retrieved_docs": [0],
+                "verification_results": {"verification_results": []},
+            }
+
+    class FakeEvaluator:
+        def compute_all_metrics(self, **_kwargs):
+            return {"f1_score": 1.0}
+
+    monkeypatch.setattr(exp9, "SelfVerificationRAGPipeline", FailingPipeline)
+    monkeypatch.setattr(exp9, "EvaluationMetrics", FakeEvaluator)
+    monkeypatch.setattr(exp9, "resolve_device", lambda _device: "cpu")
+
+    with pytest.raises(RuntimeError, match="Complete pipeline failed to process query 1"):
+        exp9.run_complete_pipeline_experiment(
             queries=["first", "second"],
             ground_truths=["answer", "answer"],
             relevant_docs=[[0], [0]],
