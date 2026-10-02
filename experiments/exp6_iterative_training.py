@@ -9,6 +9,7 @@ import argparse
 from pathlib import Path
 import json
 import csv
+import logging
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
@@ -38,6 +39,8 @@ from src.utils import setup_wandb, log_metrics, log_metadata, get_commit_hash, g
 from src.utils.cli import parse_experiment_args, resolve_sample_limit
 from src.utils.device import qlora_supported, resolve_device
 from datasets import Dataset
+
+logger = logging.getLogger(__name__)
 
 
 def load_config(config_path: str = "config/config.yaml"):
@@ -336,11 +339,11 @@ def evaluate_iteration(
     
     logger.info(f"Evaluating on {len(queries)} queries...")
     
-    for query, gt, rel_docs in tqdm(
+    for idx, (query, gt, rel_docs) in enumerate(tqdm(
         zip(queries, ground_truths, relevant_docs),
         total=len(queries),
         desc="Evaluating"
-    ):
+    )):
         try:
             result = pipeline.generate(query, top_k_retrieve=20, top_k_rerank=5)
             
@@ -357,9 +360,8 @@ def evaluate_iteration(
             
             all_metrics.append(metrics)
         
-        except Exception as e:
-            logger.warning(f"Error evaluating query: {e}")
-            continue
+        except Exception as exc:
+            raise RuntimeError(f"Validation failed to process query {idx}") from exc
     
     # Aggregate metrics
     aggregated = {}
@@ -933,8 +935,6 @@ def main():
 
 
 if __name__ == "__main__":
-    import logging
     logging.basicConfig(level=logging.INFO)
-    logger = logging.getLogger(__name__)
     
     results = main()
