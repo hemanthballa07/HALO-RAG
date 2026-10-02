@@ -327,11 +327,10 @@ def run_self_consistency_experiment(
                         }
                         log_metrics(avg_metrics, step=idx + 1, prefix=f"decoding/{strategy}/")
         
-        except Exception as e:
-            print(f"Error processing query {idx}: {e}")
-            import traceback
-            traceback.print_exc()
-            continue
+        except Exception as exc:
+            raise RuntimeError(
+                f"Self-consistency failed to process query {idx}"
+            ) from exc
     
     # Aggregate metrics
     print("\nAggregating metrics...")
