@@ -133,6 +133,56 @@ def test_self_consistency_fails_when_a_query_fails(monkeypatch):
         )
 
 
+def test_iterative_validation_fails_when_a_query_fails():
+    class FailingPipeline:
+        def generate(self, query, **_kwargs):
+            if query == "second":
+                raise RuntimeError("generation failed")
+            return {
+                "generated_text": "answer",
+                "retrieved_docs": [0],
+                "verification_results": {"verification_results": []},
+            }
+
+    class FakeEvaluator:
+        def compute_all_metrics(self, **_kwargs):
+            return {"f1_score": 1.0}
+
+    with pytest.raises(RuntimeError, match="Validation failed to process query 1"):
+        exp6.evaluate_iteration(
+            pipeline=FailingPipeline(),
+            queries=["first", "second"],
+            ground_truths=["answer", "answer"],
+            relevant_docs=[[0], [0]],
+            corpus=["answer"],
+            evaluator=FakeEvaluator(),
+        )
+
+
+def test_iterative_validation_runs_when_module_is_imported():
+    class FakePipeline:
+        def generate(self, _query, **_kwargs):
+            return {
+                "generated_text": "answer",
+                "retrieved_docs": [0],
+                "verification_results": {"verification_results": []},
+            }
+
+    class FakeEvaluator:
+        def compute_all_metrics(self, **_kwargs):
+            return {"f1_score": 1.0}
+
+    metrics = exp6.evaluate_iteration(
+        pipeline=FakePipeline(),
+        queries=["question"],
+        ground_truths=["answer"],
+        relevant_docs=[[0]],
+        corpus=["answer"],
+        evaluator=FakeEvaluator(),
+    )
+    assert metrics["f1_score"] == 1.0
+
+
 def test_revision_artifact_keeps_run_metadata(tmp_path, monkeypatch):
     class FakePipeline:
         def __init__(self, **kwargs):
