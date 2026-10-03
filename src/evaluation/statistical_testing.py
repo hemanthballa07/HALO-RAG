@@ -92,9 +92,34 @@ class StatisticalTester:
         Returns:
             Tuple of (lower_bound, upper_bound)
         """
+        if not 0.0 < confidence < 1.0:
+            raise ValueError("confidence must be between 0 and 1")
+        if n_iterations < 1:
+            raise ValueError("n_iterations must be positive")
+        if method not in {"percentile", "bca"}:
+            raise ValueError(f"Unknown method: {method}")
         if len(data) == 0:
             return (0.0, 0.0)
-        
+
+        if method == "bca":
+            values = np.asarray(data, dtype=float)
+            if len(values) == 1 or np.all(values == values[0]):
+                value = float(values[0])
+                return value, value
+            random_seed = np.random.randint(0, 2**32)
+            result = stats.bootstrap(
+                (values,), np.mean,
+                confidence_level=confidence,
+                n_resamples=n_iterations,
+                method="BCa",
+                random_state=np.random.default_rng(random_seed),
+            )
+            lower = float(result.confidence_interval.low)
+            upper = float(result.confidence_interval.high)
+            if not np.isfinite(lower) or not np.isfinite(upper):
+                raise ValueError("BCa interval is undefined for this sample")
+            return lower, upper
+
         n = len(data)
         alpha = 1 - confidence
         
@@ -106,29 +131,10 @@ class StatisticalTester:
         
         bootstrap_samples = np.array(bootstrap_samples)
         
-        if method == "percentile":
-            lower = np.percentile(bootstrap_samples, alpha / 2 * 100)
-            upper = np.percentile(bootstrap_samples, (1 - alpha / 2) * 100)
-        elif method == "bca":
-            # Bias-corrected and accelerated
-            lower, upper = self._bca_ci(data, bootstrap_samples, alpha)
-        else:
-            raise ValueError(f"Unknown method: {method}")
-        
-        return float(lower), float(upper)
-    
-    def _bca_ci(
-        self,
-        data: List[float],
-        bootstrap_samples: np.ndarray,
-        alpha: float
-    ) -> Tuple[float, float]:
-        """Compute bias-corrected and accelerated (BCa) confidence interval."""
-        # Simplified BCa - for full implementation, need jackknife
-        # Using percentile method as approximation
         lower = np.percentile(bootstrap_samples, alpha / 2 * 100)
         upper = np.percentile(bootstrap_samples, (1 - alpha / 2) * 100)
-        return lower, upper
+
+        return float(lower), float(upper)
     
     def mean_std_ci(
         self,
