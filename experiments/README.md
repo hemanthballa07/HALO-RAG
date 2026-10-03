@@ -210,7 +210,8 @@ Compares greedy, beam search, and self-consistency decoding strategies.
 **Features**:
 - Generate k=5 samples at T=0.7
 - Filter by Factual Precision ≥ 0.9
-- Aggregate via highest Verified F1
+- Aggregate by majority vote, with factual precision used for evidence selection
+- Keep ground-truth F1 for reporting only; it is never used to select an answer
 - Compare with greedy and beam search baselines
 
 **Metrics**:
