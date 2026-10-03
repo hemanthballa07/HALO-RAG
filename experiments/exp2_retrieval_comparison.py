@@ -63,6 +63,11 @@ def run_retrieval_comparison(
     Returns:
         Dictionary with results and metrics
     """
+    if not queries:
+        raise ValueError("at least one query is required")
+    if not (len(queries) == len(ground_truths) == len(relevant_docs)):
+        raise ValueError("queries, ground_truths, and relevant_docs must have equal lengths")
+
     # Set random seed
     random.seed(seed)
     np.random.seed(seed)
