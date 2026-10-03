@@ -68,7 +68,7 @@ def run_revision_strategies_experiment(
     baseline_results = []
     for query, gt, rel_docs in tqdm(zip(queries, ground_truths, relevant_docs),
                                    total=len(queries), desc="Baseline"):
-        result = pipeline_baseline.evaluate(query, gt, rel_docs)
+        result = pipeline_baseline.evaluate(query, gt, rel_docs, do_sample=False)
         baseline_results.append(result)
     
     # With revision
@@ -84,7 +84,7 @@ def run_revision_strategies_experiment(
     revision_results = []
     for query, gt, rel_docs in tqdm(zip(queries, ground_truths, relevant_docs),
                                    total=len(queries), desc="With revision"):
-        result = pipeline_revision.evaluate(query, gt, rel_docs)
+        result = pipeline_revision.evaluate(query, gt, rel_docs, do_sample=False)
         revision_results.append(result)
     
     # Aggregate metrics

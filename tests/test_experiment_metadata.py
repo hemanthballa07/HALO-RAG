@@ -224,7 +224,8 @@ def test_revision_artifact_keeps_run_metadata(tmp_path, monkeypatch):
         def __init__(self, **kwargs):
             self.revision = kwargs["enable_revision"]
 
-        def evaluate(self, query, _ground_truth, _relevant_docs):
+        def evaluate(self, query, _ground_truth, _relevant_docs, **kwargs):
+            assert kwargs["do_sample"] is False
             score = (0.7 if self.revision else 0.4)
             if query == "second":
                 score += 0.15 if self.revision else 0.1
