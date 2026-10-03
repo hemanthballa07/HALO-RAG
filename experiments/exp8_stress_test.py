@@ -443,7 +443,9 @@ def run_verifier_off_test(
     limit: Optional[int] = None
 ) -> Dict[str, Any]:
     """
-    Run verifier-off stress test (pure RAG baseline).
+    Run pure RAG without verifier-directed revision.
+
+    Verification is still used after generation to score factuality.
     
     Args:
         queries: List of queries
@@ -469,16 +471,13 @@ def run_verifier_off_test(
         ground_truths = ground_truths[:limit]
         relevant_docs = relevant_docs[:limit]
     
-    # Initialize pipeline (no verification, no revision)
+    # Revision is disabled, so verification cannot change the generated answer.
     pipeline = SelfVerificationRAGPipeline(
         corpus=corpus,
         device=device,
         enable_revision=False,
         use_qlora=config.get("generation", {}).get("qlora", {}).get("training_enabled", False)
     )
-    
-    # Disable verification (set threshold to 0)
-    pipeline.verifier.threshold = 0.0
     
     evaluator = EvaluationMetrics()
     all_metrics = []
