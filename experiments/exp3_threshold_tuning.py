@@ -116,7 +116,10 @@ def run_threshold_tuning(
                     verification_results=result["verification_results"]["verification_results"],
                     generated=result["generated_text"],
                     ground_truth=gt,
-                    retrieved_texts=retrieved_texts
+                    retrieved_texts=retrieved_texts,
+                    ground_truth_claims=pipeline.claim_extractor.extract_claims(gt),
+                    verifier=pipeline.verifier,
+                    abstained=result.get("abstained", False),
                 )
                 
                 all_metrics.append(metrics)
