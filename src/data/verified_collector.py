@@ -96,6 +96,9 @@ def collect_verified_data(
     Returns:
         List of verified examples with Factual Precision ≥ threshold
     """
+    if not (len(queries) == len(ground_truths) == len(relevant_docs)):
+        raise ValueError("queries, ground_truths, and relevant_docs must have equal lengths")
+
     verified_examples = []
     
     logger.info(f"Collecting verified data with FP ≥ {factual_precision_threshold}...")
@@ -144,9 +147,8 @@ def collect_verified_data(
             if (idx + 1) % 100 == 0:
                 logger.info(f"Processed {idx + 1}/{len(queries)} queries, collected {len(verified_examples)} verified examples")
         
-        except Exception as e:
-            logger.warning(f"Error processing query {idx}: {e}")
-            continue
+        except Exception as exc:
+            raise RuntimeError(f"Failed to collect verified data for query {idx}") from exc
     
     logger.info(f"Collected {len(verified_examples)} verified examples (FP ≥ {factual_precision_threshold})")
     
@@ -204,4 +206,3 @@ def load_verified_data(file_path: str) -> List[Dict[str, Any]]:
     
     logger.info(f"Loaded {len(examples)} verified examples from {file_path}")
     return examples
-
