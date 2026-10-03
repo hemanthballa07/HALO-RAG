@@ -115,7 +115,8 @@ nonexact subset cannot estimate factuality across the full benchmark.
 ### Experiment 1: Baseline Comparison
 **File**: `exp1_baseline.py`
 
-Runs baseline comparison (no verification) to establish baseline metrics.
+Runs the base pipeline without revision. Verification still runs to compute
+factuality metrics; it does not revise the answer.
 
 **Metrics**:
 - EM, F1, BLEU-4, ROUGE-L
@@ -261,7 +262,7 @@ instead of skipping training and publishing a baseline-only result.
 - `results/metrics/exp6_iterative_training.json`
 - `results/figures/exp6_iteration_curves.png`
 - `data/verified/train_iter{N}.jsonl` (verified training triples)
-- `checkpoints/exp6_iter{N}/` (saved adapters)
+- `checkpoints/exp6/iter{N}/` (saved adapters)
 
 **Usage**:
 ```bash
@@ -360,6 +361,31 @@ python experiments/exp8_stress_test.py --limit 100 --split validation
 - Retrieval quality correlates strongly with factual precision
 - Artifacts + plots saved and logged (W&B optional)
 
+### Experiment 9: Complete Pipeline
+**File**: `exp9_complete_pipeline.py`
+
+Runs generation, verification, and optional adaptive revision together. Without
+`--checkpoint`, it uses the base generator, so that run does not evaluate Exp6
+fine-tuning. Exp9 is a standalone experiment and is not part of the eight-experiment
+final summary runner.
+
+**Output**:
+- `results/metrics/exp9_complete_pipeline.json`
+- `results/metrics/exp9_complete_pipeline.csv`
+
+**Usage**:
+```bash
+# Small CPU smoke test with revision enabled
+python experiments/exp9_complete_pipeline.py --limit 3 --max-revision-iterations 1 --no-wandb
+
+# Evaluate a checkpoint produced by Exp6
+python experiments/exp9_complete_pipeline.py --checkpoint checkpoints/exp6/iter3 --split validation --no-wandb
+```
+
+The smoke test checks that the pipeline runs and writes complete results. A
+three-query sample, especially one with a shared passage, is not a performance
+estimate. `--dry-run` caps the sample at 30, and a smaller `--limit` still applies.
+
 ### Human Evaluation
 **Files**: `generate_human_eval_samples.py`, `score_human_eval.py`
 
@@ -398,13 +424,13 @@ to every sample, Cohen's κ is undefined and the report records `null`.
 
 ## CLI Arguments
 
-All experiments support the following CLI arguments:
+Most experiments support the following CLI arguments:
 
 - `--config`: Path to config file (default: `config/config.yaml`)
-- `--split`: Dataset split (`train`, `validation`, `test`) (default: `train`)
+- `--split`: Dataset split (default: `validation`; Exp6 always evaluates validation)
 - `--limit`: Limit number of examples (default: from config)
 - `--seed`: Random seed (default: 42)
-- `--dry-run`: Run with 30 samples for quick testing
+- `--dry-run`: Cap the sample for a quick run; the cap varies by experiment
 - `--no-wandb`: Disable W&B logging
 
 ## W&B Logging
@@ -439,6 +465,8 @@ results/
 │   ├── exp7_ablation.csv
 │   ├── exp8_stress.json
 │   ├── exp8_stress.csv
+│   ├── exp9_complete_pipeline.json
+│   ├── exp9_complete_pipeline.csv
 │   └── human_eval_agreement.json
 └── figures/
     ├── exp2_retrieval_bars.png
@@ -481,13 +509,16 @@ checkpoints/
    python experiments/exp2_retrieval_comparison.py --dry-run
    python experiments/exp3_threshold_tuning.py --dry-run
    python experiments/exp5_self_consistency.py --dry-run
-   python experiments/exp6_iterative_training.py --dry-run
+   python experiments/exp9_complete_pipeline.py --limit 3 --max-revision-iterations 1 --no-wandb
    
    # Full experiments
    python experiments/exp1_baseline.py --split validation
    python experiments/exp2_retrieval_comparison.py --split validation
    python experiments/exp3_threshold_tuning.py --split validation
    python experiments/exp5_self_consistency.py --split validation
+
+   # Exp6 training requires CUDA and bitsandbytes, including in dry-run mode
+   python experiments/exp6_iterative_training.py --dry-run --no-wandb
    python experiments/exp6_iterative_training.py --iterations 3
    ```
 
@@ -507,4 +538,4 @@ checkpoints/
 - Experiments use dataset loaders from `src/data/`
 - All experiments log commit hash and timestamp
 - Metrics are saved locally regardless of W&B availability
-- Dry run uses 30 samples for quick testing
+- Dry-run caps vary by experiment; a smaller explicit `--limit` is respected
