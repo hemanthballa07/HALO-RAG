@@ -37,3 +37,34 @@ def test_bca_constant_data_has_a_point_interval():
 def test_bootstrap_rejects_invalid_options(kwargs, expected):
     with pytest.raises(ValueError, match=expected):
         StatisticalTester().bootstrap_ci([1.0, 2.0, 3.0], **kwargs)
+
+
+def test_lower_is_better_comparison_tests_for_a_reduction():
+    baseline = [0.8, 0.7, 0.9, 0.6, 0.85]
+    proposed = [0.3, 0.25, 0.4, 0.2, 0.3]
+
+    comparison = StatisticalTester().compare_metrics(
+        baseline, proposed, "hallucination_rate", higher_is_better=False
+    )
+
+    assert comparison["higher_is_better"] is False
+    assert comparison["improvement"] == pytest.approx(0.48)
+    assert comparison["improvement_pct"] > 0
+    assert comparison["is_significant"] is True
+    assert comparison["p_value"] < 0.05
+
+    worse = StatisticalTester().compare_metrics(
+        proposed, baseline, "hallucination_rate", higher_is_better=False
+    )
+    assert worse["improvement"] == pytest.approx(-0.48)
+    assert worse["is_significant"] is False
+
+
+def test_default_comparison_still_tests_for_an_increase():
+    comparison = StatisticalTester().compare_metrics(
+        [0.3, 0.25, 0.4, 0.2, 0.3], [0.8, 0.7, 0.9, 0.6, 0.85]
+    )
+
+    assert comparison["higher_is_better"] is True
+    assert comparison["improvement"] == pytest.approx(0.48)
+    assert comparison["is_significant"] is True

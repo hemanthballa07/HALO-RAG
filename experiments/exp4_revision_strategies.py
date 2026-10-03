@@ -119,7 +119,10 @@ def run_revision_strategies_experiment(
         revision_scores = revision_aggregated[metric_name]["scores"]
         
         comparison = stats_tester.compare_metrics(
-            baseline_scores, revision_scores, metric_name
+            baseline_scores,
+            revision_scores,
+            metric_name,
+            higher_is_better=metric_name != "hallucination_rate",
         )
         comparisons[metric_name] = comparison
     

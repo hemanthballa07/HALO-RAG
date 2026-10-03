@@ -177,7 +177,8 @@ class StatisticalTester:
         self,
         baseline_scores: List[float],
         proposed_scores: List[float],
-        metric_name: str = "metric"
+        metric_name: str = "metric",
+        higher_is_better: bool = True,
     ) -> Dict[str, Any]:
         """
         Compare baseline vs proposed scores with statistical testing.
@@ -186,6 +187,7 @@ class StatisticalTester:
             baseline_scores: Baseline scores
             proposed_scores: Proposed method scores
             metric_name: Name of metric
+            higher_is_better: Whether an increase is an improvement
         
         Returns:
             Dictionary with comparison results
@@ -195,18 +197,20 @@ class StatisticalTester:
         proposed_mean, proposed_std, proposed_ci = self.mean_std_ci(proposed_scores)
         
         # Improvement
-        improvement = proposed_mean - baseline_mean
+        direction = 1 if higher_is_better else -1
+        improvement = direction * (proposed_mean - baseline_mean)
         improvement_pct = (improvement / baseline_mean * 100) if baseline_mean > 0 else 0.0
         
         # T-test
         t_stat, p_value, is_significant = self.paired_t_test(
             baseline_scores,
             proposed_scores,
-            alternative="less"  # Test if proposed > baseline
+            alternative="less" if higher_is_better else "greater",
         )
         
         return {
             "metric": metric_name,
+            "higher_is_better": higher_is_better,
             "baseline_mean": baseline_mean,
             "baseline_std": baseline_std,
             "baseline_ci": baseline_ci,

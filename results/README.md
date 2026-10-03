@@ -12,6 +12,8 @@ to be rerun before comparison with current verification metrics.
 
 SVO claims now retain auxiliary verbs and negation, which also changes verification
 inputs. Regenerate historical verification metrics before comparing them with new runs.
+Experiment 4 results generated before the statistical comparison fix used the wrong
+one-sided test for hallucination rate. Recompute its p-values before citing them.
 
 Generate a fresh smoke result with:
 
