@@ -290,7 +290,8 @@ Performs component-wise ablation study to measure impact of each module.
 **Ablation Variants**:
 - Full system (baseline): Hybrid retrieval + Reranking + NLI verification + Revision
 - No reranking: Removes cross-encoder reranking
-- No verification: Pure RAG (no verification, no revision)
+- No verification feedback: Generation without verification-based filtering or revision;
+  verification still runs afterward to score the answer
 - No revision: Verification but no adaptive revision
 - Simple verifier: Lexical overlap instead of NLI verification
 
@@ -315,11 +316,11 @@ python experiments/exp7_ablation_study.py --dry-run
 python experiments/exp7_ablation_study.py --limit 100 --split validation
 ```
 
-**Acceptance Criteria**:
-- Clear ranking of components by impact
-- Verified F1 drops show verification > reranking > revision > simple verifier
-- All metrics computed for all variants
-- Artifacts generated (CSV, JSON, plots)
+**Review Criteria**:
+- Report the measured change from the full system for each ablation without
+  assuming a component ranking
+- Compute the same metrics for every variant
+- Confirm that CSV, JSON, and plot artifacts were generated
 
 ### Experiment 8: Stress Testing & Pareto Frontier
 **File**: `exp8_stress_test.py`
@@ -327,9 +328,14 @@ python experiments/exp7_ablation_study.py --limit 100 --split validation
 Evaluates robustness and trade-offs between accuracy and factuality through comprehensive stress testing.
 
 **Stress Tests**:
-- τ-Sweep (Re-verification): τ ∈ {0.5, 0.6, 0.7, 0.75, 0.8, 0.85, 0.9}
-- Retrieval Degradation: Recall@20 ∈ {0.95, 0.85, 0.75, 0.65}
-- Verifier Off: Disable verification and measure hallucination rate increase
+- τ-sweep: Run the pipeline at τ ∈ {0.5, 0.6, 0.7, 0.75, 0.8, 0.85, 0.9}
+- Retrieval degradation: Allocate gold-passage removals across queries for
+  run-level Recall@20 targets {0.95, 0.85, 0.75, 0.65}. The JSON and CSV report
+  achieved recall, which can be lower than the target if baseline retrieval
+  already misses gold passages. Small runs have coarse recall steps, and the
+  corpus needs an irrelevant passage for a query whose gold passage is removed.
+- Verifier off: Generate without verifier-directed revision, then use the
+  normal entailment threshold to score factuality after generation
 
 **Metrics**:
 - Factual Precision, Factual Recall, Verified F1
@@ -355,11 +361,13 @@ python experiments/exp8_stress_test.py --dry-run
 python experiments/exp8_stress_test.py --limit 100 --split validation
 ```
 
-**Acceptance Criteria**:
-- Verified RAG dominates baseline on Pareto plot (higher EM & factuality)
+**Review Criteria**:
+- Compare verified RAG and the pure RAG baseline on the Pareto plot without
+  assuming either will dominate
 - Select τ from the measured validation trade-off and report whether Verified F1 reaches 0.52
-- Retrieval quality correlates strongly with factual precision
-- Artifacts + plots saved and logged (W&B optional)
+- Report the achieved recall for each degradation target and its relationship
+  to factual precision
+- Confirm that artifacts and plots were saved (W&B is optional)
 
 ### Experiment 9: Complete Pipeline
 **File**: `exp9_complete_pipeline.py`
