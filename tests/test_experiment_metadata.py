@@ -94,7 +94,8 @@ def test_complete_pipeline_fails_when_a_query_fails(monkeypatch):
 def test_threshold_tuning_fails_when_a_query_fails(monkeypatch):
     class FailingPipeline:
         def __init__(self, **_kwargs):
-            pass
+            self.claim_extractor = SimpleNamespace(extract_claims=lambda _text: [])
+            self.verifier = SimpleNamespace()
 
         def set_entailment_threshold(self, _threshold):
             pass
