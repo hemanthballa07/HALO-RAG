@@ -154,8 +154,8 @@ def test_self_consistency_fails_when_a_query_fails(monkeypatch):
     monkeypatch.setattr(exp5, "resolve_device", lambda _device: "cpu")
     monkeypatch.setattr(exp5, "generate_with_self_consistency", lambda *_args, **_kwargs: {
         "final_answer": "answer",
-        "samples": [{"verified_f1": 1.0, "retrieved_texts": []}],
-        "filtered_samples": [{"verified_f1": 1.0, "retrieved_texts": []}],
+        "samples": [{"verified_f1": 1.0, "retrieved_docs": [0], "retrieved_texts": []}],
+        "filtered_samples": [{"verified_f1": 1.0, "retrieved_docs": [0], "retrieved_texts": []}],
     })
 
     with pytest.raises(RuntimeError, match="Self-consistency failed to process query 1"):
