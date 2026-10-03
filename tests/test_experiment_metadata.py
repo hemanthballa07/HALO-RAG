@@ -253,6 +253,10 @@ def test_revision_artifact_keeps_run_metadata(tmp_path, monkeypatch):
 
     result = json.loads((tmp_path / "results/metrics/exp4_revision_strategies.json").read_text())
     assert result["metadata"] == METADATA
+    comparisons = result["statistical_comparisons"]
+    assert comparisons["hallucination_rate"]["higher_is_better"] is False
+    assert comparisons["hallucination_rate"]["improvement"] > 0
+    assert comparisons["factual_precision"]["higher_is_better"] is True
 
 
 def test_ablation_artifact_keeps_run_metadata(tmp_path):
