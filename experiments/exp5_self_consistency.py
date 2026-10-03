@@ -103,6 +103,7 @@ def generate_with_self_consistency(
             "f1_score": f1_score,
             "verified_f1": verified_f1,
             "claims": result.get("claims", []),
+            "retrieved_docs": result["retrieved_docs"],
             "retrieved_texts": result.get("reranked_texts", result.get("retrieved_texts", []))
         })
     
@@ -291,9 +292,7 @@ def run_self_consistency_experiment(
                 claims
             )
             
-            # Get retrieved docs (use first sample's retrieved docs structure)
-            # For self-consistency, we use the same retrieval as the samples
-            sc_retrieved_docs = greedy_result["retrieved_docs"]  # Use same retrieval structure
+            sc_retrieved_docs = best_sample["retrieved_docs"]
             
             sc_metrics = evaluator.compute_all_metrics(
                 retrieved_docs=sc_retrieved_docs,
