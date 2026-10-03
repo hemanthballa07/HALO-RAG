@@ -38,6 +38,29 @@ def load_config(config_path: str = "config/config.yaml"):
     return config
 
 
+def allocate_query_recall_targets(
+    relevant_docs: List[List[int]], target_recall: float, seed: int
+) -> List[float]:
+    """Allocate the run-level gold-passage budget with a fixed seed."""
+    if not 0.0 <= target_recall <= 1.0:
+        raise ValueError("target_recall must be between 0 and 1")
+
+    relevant_counts = [len(set(doc_ids)) for doc_ids in relevant_docs]
+    units = [idx for idx, count in enumerate(relevant_counts) for _ in range(count)]
+    if not units:
+        raise ValueError("retrieval degradation requires relevant documents")
+
+    random.Random(seed).shuffle(units)
+    kept_counts = [0] * len(relevant_docs)
+    for idx in units[:round(target_recall * len(units))]:
+        kept_counts[idx] += 1
+
+    return [
+        kept / count if count else 0.0
+        for kept, count in zip(kept_counts, relevant_counts)
+    ]
+
+
 class DegradedRetrievalPipeline(SelfVerificationRAGPipeline):
     """Pipeline with degraded retrieval for stress testing."""
     
@@ -60,7 +83,7 @@ class DegradedRetrievalPipeline(SelfVerificationRAGPipeline):
         target_recall: float
     ) -> List[Tuple[int, str, Optional[float]]]:
         """
-        Degrade retrieval to achieve target Recall@20.
+        Keep no more than the target number of gold passages in the top 20.
         
         Args:
             retrieved_docs: Original retrieved documents
@@ -70,87 +93,49 @@ class DegradedRetrievalPipeline(SelfVerificationRAGPipeline):
         Returns:
             Degraded retrieved documents
         """
-        if len(relevant_docs) == 0:
+        if not 0.0 <= target_recall <= 1.0:
+            raise ValueError("target_recall must be between 0 and 1")
+        if not relevant_docs:
             return retrieved_docs
-        
-        retrieved_ids = [doc[0] for doc in retrieved_docs]
+
         relevant_set = set(relevant_docs)
-        
-        # Calculate current recall@20
-        retrieved_top_20_ids = retrieved_ids[:20]
-        relevant_in_top_20 = [doc_id for doc_id in retrieved_top_20_ids if doc_id in relevant_set]
-        current_recall = len(relevant_in_top_20) / len(relevant_set) if len(relevant_set) > 0 else 0.0
-        
-        if current_recall <= target_recall:
-            # Already at or below target, return as is
+        top_20 = retrieved_docs[:20]
+        relevant_in_top_20 = {doc[0] for doc in top_20 if doc[0] in relevant_set}
+        keep_count = min(len(relevant_in_top_20), round(target_recall * len(relevant_set)))
+        if len(relevant_in_top_20) <= keep_count:
             return retrieved_docs
-        
-        # Need to degrade: replace some relevant docs with irrelevant ones
-        # Calculate how many relevant docs we should have in top 20
-        num_relevant_target = max(1, int(np.ceil(target_recall * len(relevant_set))))
-        num_relevant_current = len(relevant_in_top_20)
-        num_to_remove = num_relevant_current - num_relevant_target
-        
-        if num_to_remove <= 0:
-            return retrieved_docs
-        
-        # Get all document IDs from corpus
-        all_doc_ids = list(range(len(self.corpus)))
-        # Get irrelevant document IDs (not in relevant set and not already in top 20)
-        irrelevant_docs = [doc_id for doc_id in all_doc_ids 
-                          if doc_id not in relevant_set and doc_id not in retrieved_top_20_ids]
-        
-        if len(irrelevant_docs) == 0:
-            # No irrelevant docs available, return as is
-            return retrieved_docs
-        
-        # Randomly select irrelevant docs to add
-        np.random.shuffle(irrelevant_docs)
-        docs_to_add = irrelevant_docs[:num_to_remove]
-        
-        # Create degraded top 20: remove some relevant, add irrelevant
-        degraded_top_20_ids = []
-        relevant_removed = 0
-        
-        # First, add non-relevant docs from original top 20
-        for doc_id in retrieved_top_20_ids:
-            if doc_id not in relevant_set:
-                degraded_top_20_ids.append(doc_id)
-        
-        # Then, add target number of relevant docs
-        for doc_id in retrieved_top_20_ids:
-            if doc_id in relevant_set and len([d for d in degraded_top_20_ids if d in relevant_set]) < num_relevant_target:
-                degraded_top_20_ids.append(doc_id)
-        
-        # Fill remaining slots with irrelevant docs
-        while len(degraded_top_20_ids) < 20 and len(docs_to_add) > 0:
-            doc_id = docs_to_add.pop(0)
-            if doc_id not in degraded_top_20_ids:
-                degraded_top_20_ids.append(doc_id)
-        
-        # If we still don't have 20, add from remaining retrieved docs
-        remaining_ids = [doc_id for doc_id in retrieved_ids if doc_id not in degraded_top_20_ids]
-        while len(degraded_top_20_ids) < 20 and len(remaining_ids) > 0:
-            degraded_top_20_ids.append(remaining_ids.pop(0))
-        
-        # Reconstruct degraded retrieval list
-        doc_id_to_doc = {doc[0]: doc for doc in retrieved_docs}
-        degraded_docs = []
-        
-        # Add degraded top 20
-        for doc_id in degraded_top_20_ids:
-            if doc_id in doc_id_to_doc:
-                degraded_docs.append(doc_id_to_doc[doc_id])
-            else:
-                # Create a dummy entry if doc_id not in original retrieval
-                degraded_docs.append((doc_id, self.corpus[doc_id], 0.0))
-        
-        # Add remaining docs (beyond top 20) that weren't used
+
+        kept_relevant = set()
+        for doc in top_20:
+            if doc[0] in relevant_set and len(kept_relevant) < keep_count:
+                kept_relevant.add(doc[0])
+        degraded = [
+            doc for doc in top_20
+            if doc[0] not in relevant_set or doc[0] in kept_relevant
+        ]
+        used_ids = {doc[0] for doc in degraded}
+
         for doc in retrieved_docs[20:]:
-            if doc[0] not in degraded_top_20_ids:
-                degraded_docs.append(doc)
-        
-        return degraded_docs
+            if len(degraded) >= 20:
+                break
+            if doc[0] not in relevant_set and doc[0] not in used_ids:
+                degraded.append(doc)
+                used_ids.add(doc[0])
+
+        for doc_id, text in enumerate(self.corpus):
+            if len(degraded) >= 20:
+                break
+            if doc_id not in relevant_set and doc_id not in used_ids:
+                degraded.append((doc_id, text, 0.0))
+                used_ids.add(doc_id)
+
+        if not degraded:
+            raise ValueError("cannot degrade retrieval without an irrelevant document")
+
+        return degraded + [
+            doc for doc in retrieved_docs[20:]
+            if doc[0] not in relevant_set and doc[0] not in used_ids
+        ]
     
     def generate(
         self,
@@ -158,6 +143,7 @@ class DegradedRetrievalPipeline(SelfVerificationRAGPipeline):
         top_k_retrieve: int = 20,
         top_k_rerank: int = 5,
         relevant_docs: Optional[List[int]] = None,
+        target_recall_at_20: Optional[float] = None,
         **kwargs
     ) -> Dict[str, Any]:
         """
@@ -168,6 +154,7 @@ class DegradedRetrievalPipeline(SelfVerificationRAGPipeline):
             top_k_retrieve: Number of documents to retrieve
             top_k_rerank: Number of documents to rerank
             relevant_docs: List of relevant document IDs (for degradation)
+            target_recall_at_20: Per-query target, overriding the pipeline default
             **kwargs: Other generation arguments
         
         Returns:
@@ -181,7 +168,8 @@ class DegradedRetrievalPipeline(SelfVerificationRAGPipeline):
             retrieved_docs = self.degrade_retrieval(
                 retrieved_docs,
                 relevant_docs,
-                self.target_recall_at_20
+                self.target_recall_at_20 if target_recall_at_20 is None
+                else target_recall_at_20
             )
         
         retrieved_texts = [doc[1] for doc in retrieved_docs]
@@ -366,6 +354,11 @@ def run_retrieval_degradation_test(
     Returns:
         Dictionary with results
     """
+    if not queries:
+        raise ValueError("retrieval degradation requires at least one query")
+    if not (len(queries) == len(ground_truths) == len(relevant_docs)):
+        raise ValueError("queries, ground_truths, and relevant_docs must have equal lengths")
+
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -382,6 +375,8 @@ def run_retrieval_degradation_test(
     recall_results = {}
     
     for target_recall in tqdm(target_recalls, desc="Retrieval degradation"):
+        query_targets = allocate_query_recall_targets(relevant_docs, target_recall, seed)
+
         # Initialize pipeline with degraded retrieval
         pipeline = DegradedRetrievalPipeline(
             corpus=corpus,
@@ -392,18 +387,21 @@ def run_retrieval_degradation_test(
         )
         
         all_metrics = []
-        for query, gt, rel_docs in tqdm(
-            zip(queries, ground_truths, relevant_docs),
-            total=len(queries),
-            desc=f"Recall@20={target_recall}",
-            leave=False
+        for idx, (query, gt, rel_docs) in enumerate(
+            tqdm(
+                zip(queries, ground_truths, relevant_docs),
+                total=len(queries),
+                desc=f"Recall@20={target_recall}",
+                leave=False
+            )
         ):
             try:
                 result = pipeline.generate(
                     query,
                     top_k_retrieve=20,
                     top_k_rerank=5,
-                    relevant_docs=rel_docs
+                    relevant_docs=rel_docs,
+                    target_recall_at_20=query_targets[idx]
                 )
                 retrieved_texts = result.get("reranked_texts", result.get("retrieved_texts", []))
                 
