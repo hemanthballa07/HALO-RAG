@@ -355,7 +355,8 @@ def evaluate_iteration(
                 verification_results=result["verification_results"]["verification_results"],
                 generated=result["generated_text"],
                 ground_truth=gt,
-                retrieved_texts=retrieved_texts
+                retrieved_texts=retrieved_texts,
+                abstained=result.get("abstained", False),
             )
             
             all_metrics.append(metrics)
