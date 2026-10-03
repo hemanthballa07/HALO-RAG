@@ -191,7 +191,8 @@ python experiments/exp3_threshold_tuning.py --dry-run
 **File**: `exp4_revision_strategies.py`
 
 Compares the verified pipeline with revision disabled and enabled, then reports paired
-metric comparisons and revision frequency.
+metric comparisons and revision frequency. Both passes use deterministic initial
+decoding so the comparison isolates revision rather than sampling differences.
 
 **Output**:
 - `results/metrics/exp4_revision_strategies.json`
