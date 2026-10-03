@@ -18,8 +18,9 @@ Run the standard verification gate:
 make check
 ```
 
-This is the lightweight CI gate. On a machine with the full project dependencies
-installed, also run `make full-check` before a release or a model-backed change.
+This is the lightweight CI gate. CI also runs `make full-check` on Python 3.12
+with CPU-only PyTorch. On a machine with the full project dependencies and
+spaCy English model installed, run it before a release or a model-backed change.
 It checks the runtime dependencies and runs every test. The live service test
 remains opt-in through `HALO_RAG_RUN_LIVE=1` and requires a local corpus.
 
