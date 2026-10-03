@@ -167,7 +167,7 @@ experiments:
     k: 5 # Number of samples for self-consistency
     temperature: 0.7 # Sampling temperature
     factual_precision_threshold: 0.9 # Minimum factual precision to keep answer
-    aggregation_method: "highest_verified_f1" # "majority_vote" or "highest_verified_f1"
+    aggregation_method: "majority_vote" # "majority_vote" or "highest_factual_precision"
 
   # Experiment 6: Iterative Fine-Tuning
   exp6:

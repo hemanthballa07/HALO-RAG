@@ -48,7 +48,7 @@ def generate_with_self_consistency(
     k: int = 5,
     temperature: float = 0.7,
     factual_precision_threshold: float = 0.9,
-    aggregation_method: str = "highest_verified_f1"
+    aggregation_method: str = "majority_vote"
 ) -> Dict[str, Any]:
     """
     Generate answer using self-consistency decoding.
@@ -61,11 +61,14 @@ def generate_with_self_consistency(
         k: Number of samples to generate
         temperature: Sampling temperature
         factual_precision_threshold: Minimum factual precision to keep answer
-        aggregation_method: "majority_vote" or "highest_verified_f1"
+        aggregation_method: "majority_vote" or "highest_factual_precision"
     
     Returns:
         Dictionary with final answer and all generated samples
     """
+    if aggregation_method not in {"majority_vote", "highest_factual_precision"}:
+        raise ValueError(f"Unsupported aggregation method: {aggregation_method}")
+
     # Generate k samples
     samples = []
     
@@ -119,20 +122,20 @@ def generate_with_self_consistency(
     
     # Aggregate answers
     if aggregation_method == "majority_vote":
-        # Simple majority vote on answer text
         answers = [s["answer"] for s in filtered_samples]
         answer_counts = Counter(answers)
         final_answer = answer_counts.most_common(1)[0][0]
-    elif aggregation_method == "highest_verified_f1":
-        # Select answer with highest verified F1
-        best_sample = max(filtered_samples, key=lambda s: s.get("verified_f1", 0.0))
-        final_answer = best_sample["answer"]
+        selected_sample = max(
+            (s for s in filtered_samples if s["answer"] == final_answer),
+            key=lambda s: s["factual_precision"],
+        )
     else:
-        # Default: use first filtered sample
-        final_answer = filtered_samples[0]["answer"] if filtered_samples else samples[0]["answer"]
+        selected_sample = max(filtered_samples, key=lambda s: s["factual_precision"])
+        final_answer = selected_sample["answer"]
     
     return {
         "final_answer": final_answer,
+        "selected_sample": selected_sample,
         "samples": samples,
         "filtered_samples": filtered_samples,
         "k": k,
@@ -181,6 +184,11 @@ def run_self_consistency_experiment(
     
     # Initialize pipeline
     print("Initializing pipeline...")
+    aggregation_method = config.get("experiments", {}).get("exp5", {}).get(
+        "aggregation_method", "majority_vote"
+    )
+    if aggregation_method not in {"majority_vote", "highest_factual_precision"}:
+        raise ValueError(f"Unsupported aggregation method: {aggregation_method}")
     pipeline = SelfVerificationRAGPipeline(
         corpus=corpus,
         device=device,
@@ -270,19 +278,15 @@ def run_self_consistency_experiment(
                 k=k,
                 temperature=temperature,
                 factual_precision_threshold=factual_precision_threshold,
-                aggregation_method="highest_verified_f1"
+                aggregation_method=aggregation_method
             )
             
             # Compute metrics for final aggregated answer
-            # Use the best sample's retrieved texts and verification results
-            best_sample = max(
-                sc_result["filtered_samples"] if sc_result["filtered_samples"] else sc_result["samples"],
-                key=lambda s: s.get("verified_f1", 0.0)
-            )
+            # Use the selected answer's own evidence for scoring.
+            selected_sample = sc_result["selected_sample"]
             
             # Re-verify the final answer to get complete metrics
-            # Use the best sample's retrieved texts
-            sc_retrieved_texts = best_sample.get("retrieved_texts", [])
+            sc_retrieved_texts = selected_sample.get("retrieved_texts", [])
             
             # Re-verify the final answer
             claims = pipeline.claim_extractor.extract_claims(sc_result["final_answer"])
@@ -292,7 +296,7 @@ def run_self_consistency_experiment(
                 claims
             )
             
-            sc_retrieved_docs = best_sample["retrieved_docs"]
+            sc_retrieved_docs = selected_sample["retrieved_docs"]
             
             sc_metrics = evaluator.compute_all_metrics(
                 retrieved_docs=sc_retrieved_docs,
@@ -368,7 +372,8 @@ def run_self_consistency_experiment(
         "config": {
             "k": k,
             "temperature": temperature,
-            "factual_precision_threshold": factual_precision_threshold
+            "factual_precision_threshold": factual_precision_threshold,
+            "aggregation_method": aggregation_method,
         },
         "total_queries": len(queries),
         "processed_queries": len(results["greedy"])
@@ -484,6 +489,7 @@ def main():
     k = config.get("experiments", {}).get("exp5", {}).get("k", 5)
     temperature = config.get("experiments", {}).get("exp5", {}).get("temperature", 0.7)
     factual_precision_threshold = config.get("experiments", {}).get("exp5", {}).get("factual_precision_threshold", 0.9)
+    aggregation_method = config.get("experiments", {}).get("exp5", {}).get("aggregation_method", "majority_vote")
     
     # Determine sample limit
     sample_limit = resolve_sample_limit(
@@ -527,7 +533,8 @@ def main():
                 "seed": seed,
                 "k": k,
                 "temperature": temperature,
-                "factual_precision_threshold": factual_precision_threshold
+                "factual_precision_threshold": factual_precision_threshold,
+                "aggregation_method": aggregation_method,
             },
             enabled=True
         )
@@ -566,6 +573,7 @@ def main():
         "k": k,
         "temperature": temperature,
         "factual_precision_threshold": factual_precision_threshold,
+        "aggregation_method": aggregation_method,
         "total_queries": len(queries),
         "processed_queries": results["processed_queries"]
     }
