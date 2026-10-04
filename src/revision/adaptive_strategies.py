@@ -37,6 +37,8 @@ class AdaptiveRevisionStrategy:
         """
         if max_iterations < 0:
             raise ValueError("max_iterations cannot be negative")
+        if strategy_selection_mode not in ("dynamic", "fixed"):
+            raise ValueError(f"Invalid strategy_selection_mode: {strategy_selection_mode}")
         self.max_iterations = max_iterations
         self.strategy_selection_mode = strategy_selection_mode
         self.fixed_strategy = fixed_strategy
@@ -48,13 +50,20 @@ class AdaptiveRevisionStrategy:
                 "claim_by_claim"
             ]
         
+        valid_strategies = {strategy.value for strategy in RevisionStrategy}
+        if strategy_selection_mode == "dynamic":
+            if not strategies:
+                raise ValueError("At least one strategy is required in dynamic mode")
+            invalid_strategies = [strategy for strategy in strategies if strategy not in valid_strategies]
+            if invalid_strategies:
+                raise ValueError(f"Invalid strategies: {invalid_strategies}")
         self.strategies = strategies
         
         # Validate fixed_strategy if mode is fixed
         if strategy_selection_mode == "fixed":
             if fixed_strategy is None:
                 raise ValueError("fixed_strategy must be specified when strategy_selection_mode is 'fixed'")
-            if fixed_strategy not in ["re_retrieval", "constrained_generation", "claim_by_claim"]:
+            if fixed_strategy not in valid_strategies:
                 raise ValueError(f"Invalid fixed_strategy: {fixed_strategy}. Must be one of: re_retrieval, constrained_generation, claim_by_claim")
     
     def revise(
@@ -159,19 +168,26 @@ class AdaptiveRevisionStrategy:
         """Select revision strategy based on verification results."""
         entailment_rate = verification_results.get("entailment_rate", 0.0)
         
-        # Low entailment rate: try re-retrieval first
-        if entailment_rate < 0.5 and "re_retrieval" in self.strategies:
-            return RevisionStrategy.RE_RETRIEVAL
-        
-        # Medium entailment rate: use constrained generation
-        elif entailment_rate < 0.8 and "constrained_generation" in self.strategies:
-            return RevisionStrategy.CONSTRAINED_GENERATION
-        
-        # High but not perfect: use claim-by-claim
-        elif "claim_by_claim" in self.strategies:
-            return RevisionStrategy.CLAIM_BY_CLAIM
-        
-        return RevisionStrategy.RE_RETRIEVAL
+        if entailment_rate < 0.5:
+            preferences = (
+                RevisionStrategy.RE_RETRIEVAL,
+                RevisionStrategy.CONSTRAINED_GENERATION,
+                RevisionStrategy.CLAIM_BY_CLAIM,
+            )
+        elif entailment_rate < 0.8:
+            preferences = (
+                RevisionStrategy.CONSTRAINED_GENERATION,
+                RevisionStrategy.CLAIM_BY_CLAIM,
+                RevisionStrategy.RE_RETRIEVAL,
+            )
+        else:
+            preferences = (
+                RevisionStrategy.CLAIM_BY_CLAIM,
+                RevisionStrategy.CONSTRAINED_GENERATION,
+                RevisionStrategy.RE_RETRIEVAL,
+            )
+
+        return next(strategy for strategy in preferences if strategy.value in self.strategies)
     
     def _re_retrieval_strategy(
         self,
