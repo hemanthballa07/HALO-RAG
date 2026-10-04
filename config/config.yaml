@@ -96,7 +96,8 @@ revision:
   # Options: "re_retrieval", "constrained_generation", "claim_by_claim"
   fixed_strategy: "re_retrieval"
 
-  # Available strategies (used in dynamic mode or when fixed_strategy is set)
+  # Allowed strategies for dynamic mode; at least one must be enabled.
+  # If the preferred strategy is disabled, selection falls back to an enabled one.
   strategies:
     - "re_retrieval"
     - "constrained_generation"
