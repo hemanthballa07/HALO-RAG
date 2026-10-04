@@ -62,3 +62,31 @@ def test_collector_rejects_misaligned_inputs():
             relevant_docs=[[0]],
             corpus=["passage"],
         )
+
+
+def test_collector_does_not_train_on_abstained_answers():
+    class Pipeline:
+        def generate(self, query, **_kwargs):
+            return {
+                "generated_text": (
+                    "I cannot provide a confident answer."
+                    if query == "abstained" else "Paris"
+                ),
+                "abstained": query == "abstained",
+                "verification_results": {
+                    "verification_results": [
+                        {"label": "ENTAILED"} for _ in range(6)
+                    ] + [{"label": "NO_EVIDENCE"}]
+                },
+                "reranked_texts": ["passage"],
+            }
+
+    result = collect_verified_data(
+        pipeline=Pipeline(),
+        queries=["abstained", "answered"],
+        ground_truths=["answer", "answer"],
+        relevant_docs=[[0], [0]],
+        corpus=["passage"],
+    )
+
+    assert [example["question"] for example in result] == ["answered"]

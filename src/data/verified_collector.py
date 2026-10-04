@@ -82,7 +82,7 @@ def collect_verified_data(
     top_k_passages: int = 5
 ) -> List[Dict[str, Any]]:
     """
-    Collect verified training data with Factual Precision ≥ threshold.
+    Collect non-abstained training data with Factual Precision ≥ threshold.
     
     Args:
         pipeline: RAG pipeline
@@ -111,6 +111,8 @@ def collect_verified_data(
                 top_k_retrieve=20,
                 top_k_rerank=top_k_passages
             )
+            if result.get("abstained", False):
+                continue
             
             # Get verification results
             verification_results = result["verification_results"]
