@@ -144,8 +144,10 @@ class EvaluationMetrics:
         
         # DCG
         dcg = 0.0
+        seen_relevant = set()
         for rank, doc_id in enumerate(retrieved_docs[:k], 1):
-            if doc_id in relevant_set:
+            if doc_id in relevant_set and doc_id not in seen_relevant:
+                seen_relevant.add(doc_id)
                 if scores:
                     relevance = scores[rank - 1]
                 else:

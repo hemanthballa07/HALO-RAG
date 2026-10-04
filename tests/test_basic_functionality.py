@@ -2,6 +2,7 @@
 
 import json
 import unittest
+from math import log2
 
 from src.evaluation import EvaluationMetrics, StatisticalTester
 
@@ -12,6 +13,11 @@ class EvaluationMetricTests(unittest.TestCase):
 
     def test_recall_at_k(self):
         self.assertAlmostEqual(self.metrics.recall_at_k([0, 1, 2, 3, 4], [1, 3, 5], 5), 2 / 3)
+
+    def test_ndcg_counts_each_relevant_document_once(self):
+        self.assertAlmostEqual(self.metrics.ndcg_at_k([1, 1], [1], 2), 1.0)
+        expected = (1 + 1 / log2(4)) / (1 + 1 / log2(3))
+        self.assertAlmostEqual(self.metrics.ndcg_at_k([1, 1, 2], [1, 2], 3), expected)
 
     def test_verified_f1(self):
         self.assertAlmostEqual(self.metrics.verified_f1(0.60, 0.70), 0.42)
