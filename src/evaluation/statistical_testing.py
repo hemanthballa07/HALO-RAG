@@ -20,6 +20,8 @@ class StatisticalTester:
         Args:
             alpha: Significance level (default: 0.05)
         """
+        if not 0.0 < alpha < 1.0:
+            raise ValueError("alpha must be between 0 and 1")
         self.alpha = alpha
     
     def t_test(
@@ -151,6 +153,8 @@ class StatisticalTester:
         Returns:
             Tuple of (mean, std, (lower_ci, upper_ci))
         """
+        if not 0.0 < confidence < 1.0:
+            raise ValueError("confidence must be between 0 and 1")
         if len(data) == 0:
             return (0.0, 0.0, (0.0, 0.0))
         
