@@ -190,7 +190,7 @@ class StatisticalTester:
             higher_is_better: Whether an increase is an improvement
         
         Returns:
-            Dictionary with comparison results
+            Dictionary with comparison results. Undefined test statistics are None.
         """
         # Means and stds
         baseline_mean, baseline_std, baseline_ci = self.mean_std_ci(baseline_scores)
@@ -207,6 +207,10 @@ class StatisticalTester:
             proposed_scores,
             alternative="less" if higher_is_better else "greater",
         )
+        if not np.isfinite(t_stat) or not np.isfinite(p_value):
+            t_stat = None
+            p_value = None
+            is_significant = False
         
         return {
             "metric": metric_name,
