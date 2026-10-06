@@ -84,6 +84,16 @@ def test_default_comparison_still_tests_for_an_increase():
     assert comparison["is_significant"] is True
 
 
+def test_zero_baseline_does_not_report_a_zero_percent_change():
+    comparison = StatisticalTester().compare_metrics(
+        [0.0, 0.0, 0.0], [0.1, 0.2, 0.3]
+    )
+
+    assert comparison["improvement"] == pytest.approx(0.2)
+    assert comparison["improvement_pct"] is None
+    json.dumps(comparison, allow_nan=False)
+
+
 @pytest.mark.parametrize("baseline,proposed", [
     ([1.0], [1.0]),
     ([1.0, 1.0, 1.0], [1.0, 1.0, 1.0]),
