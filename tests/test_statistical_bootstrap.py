@@ -1,5 +1,7 @@
 """Bootstrap methods must report the interval they claim to compute."""
 
+import json
+
 import numpy as np
 import pytest
 
@@ -68,3 +70,16 @@ def test_default_comparison_still_tests_for_an_increase():
     assert comparison["higher_is_better"] is True
     assert comparison["improvement"] == pytest.approx(0.48)
     assert comparison["is_significant"] is True
+
+
+@pytest.mark.parametrize("baseline,proposed", [
+    ([1.0], [1.0]),
+    ([1.0, 1.0, 1.0], [1.0, 1.0, 1.0]),
+])
+def test_undefined_comparison_statistics_are_valid_json(baseline, proposed):
+    comparison = StatisticalTester().compare_metrics(baseline, proposed)
+
+    assert comparison["t_statistic"] is None
+    assert comparison["p_value"] is None
+    assert comparison["is_significant"] is False
+    json.dumps(comparison, allow_nan=False)
