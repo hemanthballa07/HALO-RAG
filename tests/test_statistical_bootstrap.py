@@ -41,6 +41,18 @@ def test_bootstrap_rejects_invalid_options(kwargs, expected):
         StatisticalTester().bootstrap_ci([1.0, 2.0, 3.0], **kwargs)
 
 
+@pytest.mark.parametrize("alpha", [0.0, 1.0, float("nan")])
+def test_significance_level_must_be_a_probability(alpha):
+    with pytest.raises(ValueError, match="alpha must be between 0 and 1"):
+        StatisticalTester(alpha=alpha)
+
+
+@pytest.mark.parametrize("confidence", [0.0, 1.0, float("nan")])
+def test_mean_interval_rejects_invalid_confidence(confidence):
+    with pytest.raises(ValueError, match="confidence must be between 0 and 1"):
+        StatisticalTester().mean_std_ci([1.0, 2.0], confidence=confidence)
+
+
 def test_lower_is_better_comparison_tests_for_a_reduction():
     baseline = [0.8, 0.7, 0.9, 0.6, 0.85]
     proposed = [0.3, 0.25, 0.4, 0.2, 0.3]
