@@ -156,8 +156,11 @@ def run_revision_strategies_experiment(
     print("\nStatistical comparisons:")
     for metric_name, comp in comparisons.items():
         p_value = "n/a" if comp["p_value"] is None else f"{comp['p_value']:.4f}"
+        improvement_pct = (
+            "n/a" if comp["improvement_pct"] is None else f"{comp['improvement_pct']:.2f}%"
+        )
         print(f"  {metric_name}: improvement={comp['improvement']:.4f} "
-              f"({comp['improvement_pct']:.2f}%), p={p_value}, "
+              f"({improvement_pct}), p={p_value}, "
               f"significant={comp['is_significant']}")
     
     print(f"\nRevision statistics:")

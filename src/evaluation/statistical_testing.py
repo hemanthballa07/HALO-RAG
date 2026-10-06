@@ -194,7 +194,7 @@ class StatisticalTester:
             higher_is_better: Whether an increase is an improvement
         
         Returns:
-            Dictionary with comparison results. Undefined test statistics are None.
+            Dictionary with comparison results. Undefined statistics and percentages are None.
         """
         # Means and stds
         baseline_mean, baseline_std, baseline_ci = self.mean_std_ci(baseline_scores)
@@ -203,7 +203,7 @@ class StatisticalTester:
         # Improvement
         direction = 1 if higher_is_better else -1
         improvement = direction * (proposed_mean - baseline_mean)
-        improvement_pct = (improvement / baseline_mean * 100) if baseline_mean > 0 else 0.0
+        improvement_pct = (improvement / baseline_mean * 100) if baseline_mean > 0 else None
         
         # T-test
         t_stat, p_value, is_significant = self.paired_t_test(
