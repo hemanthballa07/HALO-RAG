@@ -20,13 +20,17 @@ whether the source passage appears to contain an answer. Do not overwrite a
 partially annotated review CSV with a new export.
 
 After an independent reviewer completes every row, validate and summarize the
-sheet with:
+latest diagnostic sheet with:
 
 ```bash
 python experiments/score_benchmark_review.py \
-  --csv results/human_eval/focused_false_accepts_current_protocol.csv \
-  --output results/human_eval/focused_false_accepts_current_protocol_report.json
+  --csv results/human_eval/focused_false_accepts_seed2028_2030.csv \
+  --output results/human_eval/focused_false_accepts_seed2028_2030_report.json
 ```
+
+Score `focused_false_accepts_current_protocol.csv` separately with its own
+output path. It was exported from a different source version. The older
+`focused_seed2026_2027_review.csv` is also a separate review.
 
 The command exits without writing a report if any judgment is blank or invalid.
 It also refuses to overwrite an existing report. Omit `--output` to print the

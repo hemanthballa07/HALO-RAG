@@ -2,19 +2,22 @@
 
 ## Before the full experiment run
 
-1. Independently review the four current-protocol focused cases in
-   `results/human_eval/focused_false_accepts_current_protocol.csv`. Judge
-   whether each answer addresses the question and is supported by its retrieved
-   passage. Keep those judgments separate from the SQuAD v2 answerability
-   label. Once every row is labeled, run `experiments/score_benchmark_review.py`
-   as shown in `results/human_eval/README.md`. The older 24-case sheet at
-   `results/human_eval/focused_seed2026_2027_review.csv` is a separate review
-   from earlier runs. Do not combine its judgments with the current protocol.
-2. Use confirmed unsupported answers to improve verification beyond lexical
-   co-occurrence. The current three-seed diagnostic has four verified answers
-   on 30 source-unanswerable focused questions; these are not yet confirmed
-   evidence failures. Add regression cases from adjudicated errors, then
-   evaluate on new seeds and another dataset without tuning to test cases.
+1. Independently review the nine focused false-accept flags from the three-seed
+   CPU diagnostic in `results/human_eval/focused_false_accepts_seed2028_2030.csv`.
+   Judge whether each answer addresses the question and is supported by its
+   retrieved passage. Keep those judgments separate from the SQuAD v2
+   answerability label. The four cases in
+   `results/human_eval/focused_false_accepts_current_protocol.csv` and the older
+   24-case sheet in `results/human_eval/focused_seed2026_2027_review.csv` are
+   separate reviews. Do not combine scores across different protocols. Once
+   each sheet is fully labeled, score it as shown in
+   `results/human_eval/README.md`.
+2. Use confirmed errors to improve verification beyond lexical co-occurrence.
+   The three-seed diagnostic flagged nine verified answers on 30
+   source-unanswerable focused questions; the flags are not yet confirmed
+   evidence failures. These questions have been inspected, so do not treat them
+   as fresh holdout data after a fix. Add regression cases from adjudicated
+   errors, then validate on new seeds and another dataset.
 3. Repeat the experiment matrix on the target CUDA host after choosing a
    setting. The CPU runs are useful checks, not release results.
 
